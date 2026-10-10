@@ -162,9 +162,13 @@ class DaemonTransport:
         self.connect()
         return self._call("status")
 
-    def sync(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
+    def fetch(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
         self.connect()
-        return self._call("sync", key=key.format(), limit=limit)
+        return self._call("fetch", key=key.format(), limit=limit)
+
+    def sync(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
+        """Deprecated alias for :meth:`fetch`."""
+        return self.fetch(key, limit=limit)
 
     def flush(
         self,

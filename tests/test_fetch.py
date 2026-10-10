@@ -1,10 +1,10 @@
+from slack_fd.fetch import fetch_stream
 from slack_fd.keys import StreamKey
 from slack_fd.logstore import LogStore
 from slack_fd.records import MessageRecord
-from slack_fd.sync import sync_stream
 
 
-class FakeSyncClient:
+class FakeFetchClient:
     def __init__(self, messages: list[dict]) -> None:
         self._messages = messages
         self.opens: list[dict] = []
@@ -23,7 +23,7 @@ class FakeSyncClient:
         return {"ok": True, "messages": list(self._messages)}
 
 
-def test_sync_adds_inbound_and_repairs_outbox(tmp_path):
+def test_fetch_adds_inbound_and_repairs_outbox(tmp_path):
     key = StreamKey.app("U_USER")
     store = LogStore(tmp_path)
     store.append(
@@ -50,17 +50,16 @@ def test_sync_adds_inbound_and_repairs_outbox(tmp_path):
         log="outbox",
     )
 
-    # Slack history is newest-first
     messages = [
         {"type": "message", "user": "U_USER", "text": "erpy", "ts": "3.0"},
         {"type": "message", "user": "U_BOT", "text": "2 hello from sfd", "ts": "2.0"},
         {"type": "message", "user": "U_BOT", "text": "hello from sfd", "ts": "1.5"},
         {"type": "message", "user": "U_USER", "text": "hi again", "ts": "1.0"},
     ]
-    result = sync_stream(
+    result = fetch_stream(
         key,
         data_dir=tmp_path,
-        client=FakeSyncClient(messages),
+        client=FakeFetchClient(messages),
         store=store,
     )
     assert result.inbound_added == 2
@@ -79,7 +78,7 @@ def test_sync_adds_inbound_and_repairs_outbox(tmp_path):
     assert out0.error is None
 
 
-def test_sync_skips_existing_inbox_ts(tmp_path):
+def test_fetch_skips_existing_inbox_ts(tmp_path):
     key = StreamKey.dm("U_USER")
     store = LogStore(tmp_path)
     store.append(
@@ -97,10 +96,10 @@ def test_sync_skips_existing_inbox_ts(tmp_path):
         {"type": "message", "user": "U_USER", "text": "hi again", "ts": "1.0"},
         {"type": "message", "user": "U_USER", "text": "new", "ts": "2.0"},
     ]
-    result = sync_stream(
+    result = fetch_stream(
         key,
         data_dir=tmp_path,
-        client=FakeSyncClient(messages),
+        client=FakeFetchClient(messages),
         store=store,
     )
     assert result.inbound_added == 1

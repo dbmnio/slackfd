@@ -172,12 +172,12 @@ class DaemonService:
             self._cond.notify_all()
         return written
 
-    def sync_stream(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
-        """Catch-up from Slack history; wakes inbox waiters if anything was added."""
-        from slack_fd.sync import sync_stream
+    def fetch_stream(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
+        """Slack → local catch-up; wakes inbox waiters if anything was added."""
+        from slack_fd.fetch import fetch_stream
 
         client = self.slack.client if self.slack else None
-        result = sync_stream(
+        result = fetch_stream(
             key,
             data_dir=self.data_dir,
             client=client,
@@ -188,6 +188,9 @@ class DaemonService:
             with self._cond:
                 self._cond.notify_all()
         return result.to_dict()
+
+    # Back-compat
+    sync_stream = fetch_stream
 
     def flush_stream(
         self,

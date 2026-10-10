@@ -273,11 +273,11 @@ class DaemonServer:
             )
             return {"message": msg.to_dict()}
 
-        if method == "sync":
+        if method in {"fetch", "sync"}:  # sync = deprecated alias
             if key is None:
                 raise RpcError("invalid_params", "key required")
             limit = int(params.get("limit", 200))
-            return self.service.sync_stream(key, limit=limit)
+            return self.service.fetch_stream(key, limit=limit)
 
         if method == "flush":
             if key is None:

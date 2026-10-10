@@ -198,30 +198,30 @@ def cmd_inject(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_sync(args: argparse.Namespace) -> int:
-    """Catch-up from Slack history; repair outbox; does not move read cursors."""
-    from slack_fd.sync import sync_stream
+def cmd_fetch(args: argparse.Namespace) -> int:
+    """Slack → local: catch up inbox; repair outbox already in Slack (no send)."""
+    from slack_fd.fetch import fetch_stream
 
     key = StreamKey.parse(args.key)
     data = _data_dir(args) or default_data_dir()
     result: dict
 
-    # Prefer daemon RPC so waiters wake; fall back to direct Web API sync.
     try:
         transport = DaemonTransport(data)
         transport.connect()
         try:
-            result = transport.sync(key, limit=args.limit)
+            result = transport.fetch(key, limit=args.limit)
         finally:
             transport.close()
     except (DaemonUnavailable, SlackFdError):
-        result = sync_stream(key, data_dir=data, limit=args.limit).to_dict()
+        result = fetch_stream(key, data_dir=data, limit=args.limit).to_dict()
 
+    verb = getattr(args, "cmd", None) or "fetch"
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         print(
-            f"sync {result.get('key')} channel={result.get('channel')} "
+            f"{verb} {result.get('key')} channel={result.get('channel')} "
             f"fetched={result.get('fetched')} "
             f"inbound_added={result.get('inbound_added')} "
             f"outbox_repaired={result.get('outbox_repaired')} "
@@ -391,18 +391,27 @@ def build_parser() -> argparse.ArgumentParser:
     inj.add_argument("--user", default="U_FAKE")
     inj.set_defaults(func=cmd_inject)
 
-    sy = sub.add_parser(
-        "sync",
+    fe = sub.add_parser(
+        "fetch",
         help="Slack → local: catch up inbox; repair outbox already in Slack (no send)",
     )
-    sy.add_argument("key")
-    sy.add_argument(
+    fe.add_argument("key")
+    fe.add_argument(
         "--limit",
         type=int,
         default=200,
         help="Max history messages to fetch (default 200)",
     )
-    sy.set_defaults(func=cmd_sync)
+    fe.set_defaults(func=cmd_fetch)
+
+    # Deprecated alias — "sync" sounded bidirectional.
+    sy = sub.add_parser(
+        "sync",
+        help="Deprecated alias for fetch (Slack → local only)",
+    )
+    sy.add_argument("key")
+    sy.add_argument("--limit", type=int, default=200)
+    sy.set_defaults(func=cmd_fetch)
 
     fl = sub.add_parser(
         "flush",
@@ -447,7 +456,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _SUBCOMMANDS = frozenset(
-    {"write", "read", "follow", "log", "inject", "sync", "flush", "trim", "daemon"}
+    {
+        "write",
+        "read",
+        "follow",
+        "log",
+        "inject",
+        "fetch",
+        "sync",
+        "flush",
+        "trim",
+        "daemon",
+    }
 )
 _OPTS_WITH_VALUE = frozenset({"--data-dir", "--consumer"})
 

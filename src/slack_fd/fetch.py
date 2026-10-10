@@ -1,4 +1,4 @@
-"""Catch-up sync: Slack history → local inbox; repair outbox from bot messages.
+"""Fetch (Slack → local): Slack history → local inbox; repair outbox from bot messages.
 
 Queues remain local-first. This does not move read cursors or rewrite history.
 """
@@ -16,7 +16,7 @@ from slack_fd.keys import StreamKey
 from slack_fd.logstore import LogStore
 from slack_fd.records import MessageRecord
 
-log = logging.getLogger("slack_fd.sync")
+log = logging.getLogger("slack_fd.fetch")
 
 _SKIP_SUBTYPES = {
     "message_changed",
@@ -29,7 +29,7 @@ _SKIP_SUBTYPES = {
 }
 
 
-class SyncWebApi(Protocol):
+class FetchWebApi(Protocol):
     def auth_test(self, **kwargs: Any) -> Any: ...
 
     def conversations_open(self, **kwargs: Any) -> Any: ...
@@ -40,7 +40,7 @@ class SyncWebApi(Protocol):
 
 
 @dataclass
-class SyncResult:
+class FetchResult:
     key: str
     channel: str
     bot_user_id: str
@@ -63,14 +63,14 @@ class SyncResult:
         }
 
 
-def sync_stream(
+def fetch_stream(
     key: StreamKey | str,
     *,
     data_dir: Path | None = None,
-    client: SyncWebApi | None = None,
+    client: FetchWebApi | None = None,
     store: LogStore | None = None,
     limit: int = 200,
-) -> SyncResult:
+) -> FetchResult:
     """Pull Slack history for ``key`` and reconcile local logs."""
     stream = StreamKey.parse(key) if isinstance(key, str) else key
     root = (data_dir or load_config().data_dir).resolve()
@@ -88,7 +88,7 @@ def sync_stream(
     channel = resolve_channel(client, stream)
     messages = fetch_messages(client, stream, channel, limit=limit)
 
-    result = SyncResult(
+    result = FetchResult(
         key=stream.format(),
         channel=channel,
         bot_user_id=bot_user_id,
@@ -149,7 +149,7 @@ def sync_stream(
     return result
 
 
-def resolve_channel(client: SyncWebApi, key: StreamKey) -> str:
+def resolve_channel(client: FetchWebApi, key: StreamKey) -> str:
     if key.kind == "thread":
         if not key.channel_id:
             raise ValueError("thread key missing channel_id")
@@ -165,7 +165,7 @@ def resolve_channel(client: SyncWebApi, key: StreamKey) -> str:
 
 
 def fetch_messages(
-    client: SyncWebApi,
+    client: FetchWebApi,
     key: StreamKey,
     channel: str,
     *,
@@ -239,11 +239,11 @@ def repair_outbox(
     return repaired
 
 
-def _default_client(data_dir: Path) -> SyncWebApi:
+def _default_client(data_dir: Path) -> FetchWebApi:
     cfg = load_config(data_dir)
     if not cfg.bot_token:
         raise RuntimeError(
-            "SLACK_BOT_TOKEN required for sync (app token not needed for history)"
+            "SLACK_BOT_TOKEN required for fetch (app token not needed for history)"
         )
     from slack_sdk import WebClient
 
@@ -282,3 +282,13 @@ def _slim(msg: dict[str, Any]) -> dict[str, Any]:
         "team",
     )
     return {k: msg[k] for k in keep if k in msg}
+
+
+# Back-compat aliases (old name "sync" felt bidirectional).
+SyncWebApi = FetchWebApi
+SyncResult = FetchResult
+
+
+def sync_stream(*args, **kwargs) -> FetchResult:
+    """Deprecated alias for :func:`fetch_stream`."""
+    return fetch_stream(*args, **kwargs)

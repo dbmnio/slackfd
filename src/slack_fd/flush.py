@@ -1,6 +1,6 @@
 """Flush outbox: send pending/failed local messages to Slack.
 
-Distinct from ``sync`` (Slack → local). Flush is local → Slack.
+Distinct from ``fetch`` (Slack → local). Flush is local → Slack.
 
 By default, runs a history-based outbox *repair* first so messages that already
 exist in Slack (e.g. status stuck at pending) are marked sent and not duplicated.
@@ -17,7 +17,7 @@ from slack_fd.config import load_config
 from slack_fd.daemon.mux import apply_send_result, response_data, send_message
 from slack_fd.keys import StreamKey
 from slack_fd.logstore import LogStore
-from slack_fd.sync import SyncWebApi, fetch_messages, repair_outbox, resolve_channel
+from slack_fd.fetch import FetchWebApi, fetch_messages, repair_outbox, resolve_channel
 
 log = logging.getLogger("slack_fd.flush")
 
@@ -46,7 +46,7 @@ def flush_stream(
     key: StreamKey | str,
     *,
     data_dir: Path | None = None,
-    client: SyncWebApi | None = None,
+    client: FetchWebApi | None = None,
     store: LogStore | None = None,
     retry_failed: bool = True,
     repair_first: bool = True,
@@ -120,7 +120,7 @@ def flush_stream(
     return result
 
 
-def _default_client(data_dir: Path) -> SyncWebApi:
+def _default_client(data_dir: Path) -> FetchWebApi:
     cfg = load_config(data_dir)
     if not cfg.bot_token:
         raise RuntimeError("SLACK_BOT_TOKEN required for flush")
