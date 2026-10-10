@@ -125,15 +125,14 @@ def cmd_log(args: argparse.Namespace) -> int:
     key = StreamKey.parse(args.key)
     store = LogStore(_data_dir(args) or default_data_dir())
     if args.chat:
-        for name, rec in store.iter_chat(key):
-            if args.json:
+        rows = store.iter_chat(key)
+        if args.json:
+            for name, rec in rows:
                 row = rec.to_dict()
                 row["_log"] = name
                 print(json.dumps(row, ensure_ascii=False))
-            else:
-                status = f"\t{rec.status}" if rec.status else ""
-                ts = rec.ts or "-"
-                print(f"{rec.direction}\t{name}:{rec.offset}\t{ts}\t{rec.text}{status}")
+            return 0
+        _print_chat_table(rows)
         return 0
 
     which = args.which
@@ -147,6 +146,42 @@ def cmd_log(args: argparse.Namespace) -> int:
             else:
                 print(f"{name}\t{rec.offset}\t{rec.direction}\t{rec.text}")
     return 0
+
+
+def _print_chat_table(rows: list) -> None:
+    """Aligned chat projection; physical logs remain separate."""
+    if not rows:
+        return
+    header = ("dir", "ref", "ts", "status", "text")
+    table: list[tuple[str, str, str, str, str]] = [header]
+    for name, rec in rows:
+        table.append(
+            (
+                rec.direction,
+                f"{name}:{rec.offset}",
+                rec.ts or "—",
+                rec.status or "—",
+                rec.text.replace("\t", " ").replace("\n", "\\n"),
+            )
+        )
+    widths = [max(len(row[i]) for row in table) for i in range(4)]
+    for i, row in enumerate(table):
+        line = (
+            f"{row[0]:<{widths[0]}}  "
+            f"{row[1]:<{widths[1]}}  "
+            f"{row[2]:<{widths[2]}}  "
+            f"{row[3]:<{widths[3]}}  "
+            f"{row[4]}"
+        )
+        print(line)
+        if i == 0:
+            print(
+                f"{'─' * widths[0]}  "
+                f"{'─' * widths[1]}  "
+                f"{'─' * widths[2]}  "
+                f"{'─' * widths[3]}  "
+                f"{'─' * max(4, min(40, max(len(r[4]) for r in table)))}"
+            )
 
 
 def cmd_inject(args: argparse.Namespace) -> int:

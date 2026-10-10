@@ -396,9 +396,22 @@ Never commit tokens. Prefer env vars in production/agent settings.
 
 ### Phase 3 — Async + polish (in progress)
 
-- `AsyncSlackStream` via `asyncio.to_thread` over the sync client.
-- Merged chat *view* (`history()` / `sfd log --chat`) — physical inbox/outbox stay separate.
-- Remaining: embed transport, retention flags.
+- ✅ `AsyncSlackStream` via `asyncio.to_thread` over the sync client.
+- ✅ Merged chat *view* (`history()` / `sfd log --chat`) — physical inbox/outbox stay separate.
+- ✅ Chat table formatting for `--chat`.
+
+### Task backlog (implementation order)
+
+Queues stay local-first. Slack is not the source of truth for cursors; sync is catch-up / repair only.
+
+| Order | Task | Why this order |
+|------:|------|----------------|
+| 1 | **`sfd sync <key>`** — pull `conversations.history` / `replies`; append missing inbound by `ts`; repair outbox `pending`/`failed` (match bot messages → `sent` + `ts`) | Fixes live divergence now; unblocks trustworthy `--chat` |
+| 2 | **Embed transport** — in-process Socket Mode when daemon missing (with warning) | Completes AD-3; depends on stable Slack bridge used by sync/daemon |
+| 3 | **Retention / trim** — max age/bytes for JSONL | Safety polish after sync can grow logs |
+| 4 | CLI pipe sugar / UX nits | Lowest risk; after core paths solid |
+
+Non-goals for sync: continuous bidirectional mirror, rewriting inbox history, moving read cursors automatically.
 
 ---
 
