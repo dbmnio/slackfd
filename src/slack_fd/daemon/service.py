@@ -189,6 +189,29 @@ class DaemonService:
                 self._cond.notify_all()
         return result.to_dict()
 
+    def flush_stream(
+        self,
+        key: StreamKey,
+        *,
+        retry_failed: bool = True,
+        repair_first: bool = True,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """Send pending/failed outbox rows to Slack (after optional history repair)."""
+        from slack_fd.flush import flush_stream
+
+        client = self.slack.client if self.slack else None
+        result = flush_stream(
+            key,
+            data_dir=self.data_dir,
+            client=client,
+            store=self.store,
+            retry_failed=retry_failed,
+            repair_first=repair_first,
+            limit=limit,
+        )
+        return result.to_dict()
+
     def status(self) -> dict[str, Any]:
         slack_on = bool(self.slack and self.slack.connected)
         return {

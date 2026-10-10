@@ -166,6 +166,23 @@ class DaemonTransport:
         self.connect()
         return self._call("sync", key=key.format(), limit=limit)
 
+    def flush(
+        self,
+        key: StreamKey,
+        *,
+        retry_failed: bool = True,
+        repair_first: bool = True,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        self.connect()
+        return self._call(
+            "flush",
+            key=key.format(),
+            retry_failed=retry_failed,
+            repair_first=repair_first,
+            limit=limit,
+        )
+
     def _call(self, method: str, **params: Any) -> dict[str, Any]:
         with self._lock:
             if self._sock is None:

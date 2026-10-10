@@ -230,6 +230,50 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_flush(args: argparse.Namespace) -> int:
+    """Send pending/failed outbox to Slack (repair-from-history first by default)."""
+    from slack_fd.flush import flush_stream
+
+    key = StreamKey.parse(args.key)
+    data = _data_dir(args) or default_data_dir()
+    result: dict
+
+    try:
+        transport = DaemonTransport(data)
+        transport.connect()
+        try:
+            result = transport.flush(
+                key,
+                retry_failed=not args.no_retry_failed,
+                repair_first=not args.no_repair,
+                limit=args.limit,
+            )
+        finally:
+            transport.close()
+    except (DaemonUnavailable, SlackFdError):
+        result = flush_stream(
+            key,
+            data_dir=data,
+            retry_failed=not args.no_retry_failed,
+            repair_first=not args.no_repair,
+            limit=args.limit,
+        ).to_dict()
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"flush {result.get('key')} "
+            f"repaired={result.get('repaired')} "
+            f"sent={result.get('sent')} "
+            f"failed={result.get('failed')} "
+            f"skipped={result.get('skipped')}"
+        )
+        for note in result.get("notes") or []:
+            print(f"  note: {note}", file=sys.stderr)
+    return 0 if not result.get("failed") else 1
+
+
 def cmd_trim(args: argparse.Namespace) -> int:
     key = StreamKey.parse(args.key)
     inbox_keep = args.inbox_keep if args.inbox_keep is not None else args.keep
@@ -349,7 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sy = sub.add_parser(
         "sync",
-        help="Catch up from Slack history; repair outbox (does not move read cursors)",
+        help="Slack → local: catch up inbox; repair outbox already in Slack (no send)",
     )
     sy.add_argument("key")
     sy.add_argument(
@@ -359,6 +403,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max history messages to fetch (default 200)",
     )
     sy.set_defaults(func=cmd_sync)
+
+    fl = sub.add_parser(
+        "flush",
+        help="Local → Slack: send pending/failed outbox (repairs from history first)",
+    )
+    fl.add_argument("key")
+    fl.add_argument(
+        "--limit",
+        type=int,
+        default=200,
+        help="History window for pre-flush repair (default 200)",
+    )
+    fl.add_argument(
+        "--no-repair",
+        action="store_true",
+        help="Do not match existing Slack bot messages before sending (risk of dupes)",
+    )
+    fl.add_argument(
+        "--no-retry-failed",
+        action="store_true",
+        help="Only send status=pending rows; leave failed alone",
+    )
+    fl.set_defaults(func=cmd_flush)
 
     tr = sub.add_parser("trim", help="Drop oldest log lines; keep newest N")
     tr.add_argument("key")
@@ -380,7 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _SUBCOMMANDS = frozenset(
-    {"write", "read", "follow", "log", "inject", "sync", "trim", "daemon"}
+    {"write", "read", "follow", "log", "inject", "sync", "flush", "trim", "daemon"}
 )
 _OPTS_WITH_VALUE = frozenset({"--data-dir", "--consumer"})
 

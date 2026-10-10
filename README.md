@@ -70,7 +70,8 @@ sfd daemon start
 sfd daemon status          # slack: true when tokens are set
 
 # DM the bot in Slack, then:
-sfd sync 'app:U_YOUR_USER_ID'
+sfd sync 'app:U_YOUR_USER_ID'    # Slack → local (inbox + repair outbox already in Slack)
+sfd flush 'app:U_YOUR_USER_ID'   # local → Slack (send pending/failed; repairs first to avoid dupes)
 sfd log --chat 'app:U_YOUR_USER_ID'
 sfd 'app:U_YOUR_USER_ID' --timeout 10
 echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'

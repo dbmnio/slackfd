@@ -415,6 +415,11 @@ Queues stay local-first. Slack is not the source of truth for cursors; sync is c
 
 Non-goals for sync: continuous bidirectional mirror, rewriting inbox history, moving read cursors automatically.
 
+| Command | Direction | Role |
+|---------|-----------|------|
+| `sfd sync` | Slack → local | Catch up inbox; mark outbox sent if already visible in Slack |
+| `sfd flush` | Local → Slack | Send remaining pending/failed outbox (runs repair first by default) |
+
 ---
 
 ## Open questions (deferred, not blocking)

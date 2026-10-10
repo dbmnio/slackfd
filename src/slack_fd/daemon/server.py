@@ -279,6 +279,16 @@ class DaemonServer:
             limit = int(params.get("limit", 200))
             return self.service.sync_stream(key, limit=limit)
 
+        if method == "flush":
+            if key is None:
+                raise RpcError("invalid_params", "key required")
+            return self.service.flush_stream(
+                key,
+                retry_failed=bool(params.get("retry_failed", True)),
+                repair_first=bool(params.get("repair_first", True)),
+                limit=int(params.get("limit", 200)),
+            )
+
         raise RpcError("unknown_method", f"unknown method {method!r}")
 
 
