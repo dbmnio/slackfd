@@ -127,6 +127,10 @@ class DaemonTransport:
         self.connect()
         return self._call("status")
 
+    def sync(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
+        self.connect()
+        return self._call("sync", key=key.format(), limit=limit)
+
     def _call(self, method: str, **params: Any) -> dict[str, Any]:
         with self._lock:
             if self._sock is None:

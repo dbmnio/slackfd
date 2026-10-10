@@ -142,6 +142,8 @@ class LogStore:
                 rec.ts = ts
             if error is not None:
                 rec.error = error
+            if status == "sent":
+                rec.error = None
             lines[offset] = json.dumps(rec.to_dict(), ensure_ascii=False)
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             return rec

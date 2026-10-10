@@ -172,6 +172,23 @@ class DaemonService:
             self._cond.notify_all()
         return written
 
+    def sync_stream(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
+        """Catch-up from Slack history; wakes inbox waiters if anything was added."""
+        from slack_fd.sync import sync_stream
+
+        client = self.slack.client if self.slack else None
+        result = sync_stream(
+            key,
+            data_dir=self.data_dir,
+            client=client,
+            store=self.store,
+            limit=limit,
+        )
+        if result.inbound_added:
+            with self._cond:
+                self._cond.notify_all()
+        return result.to_dict()
+
     def status(self) -> dict[str, Any]:
         slack_on = bool(self.slack and self.slack.connected)
         return {

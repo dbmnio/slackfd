@@ -35,6 +35,7 @@ sfd daemon status   # expect "slack": true
 # In Slack: DM the bot any message
 
 # Find your user id (U…) from the log, or use profile → Copy member ID
+sfd sync 'app:U_YOUR_USER_ID'         # catch up history; repair outbox (no cursor move)
 sfd log 'app:U_YOUR_USER_ID'
 sfd log --chat 'app:U_YOUR_USER_ID'   # merged timeline; logs stay separate
 sfd read 'app:U_YOUR_USER_ID' --timeout 5

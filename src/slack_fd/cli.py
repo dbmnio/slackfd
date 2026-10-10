@@ -201,6 +201,38 @@ def cmd_inject(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sync(args: argparse.Namespace) -> int:
+    """Catch-up from Slack history; repair outbox; does not move read cursors."""
+    from slack_fd.sync import sync_stream
+
+    key = StreamKey.parse(args.key)
+    data = _data_dir(args) or default_data_dir()
+    result: dict
+
+    # Prefer daemon RPC so waiters wake; fall back to direct Web API sync.
+    try:
+        transport = DaemonTransport(data)
+        transport.connect()
+        try:
+            result = transport.sync(key, limit=args.limit)
+        finally:
+            transport.close()
+    except (DaemonUnavailable, SlackFdError):
+        result = sync_stream(key, data_dir=data, limit=args.limit).to_dict()
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"sync {result.get('key')} channel={result.get('channel')} "
+            f"fetched={result.get('fetched')} "
+            f"inbound_added={result.get('inbound_added')} "
+            f"outbox_repaired={result.get('outbox_repaired')} "
+            f"skipped={result.get('skipped')}"
+        )
+    return 0
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     data = _data_dir(args)
     action = args.action or "status"
@@ -298,6 +330,19 @@ def build_parser() -> argparse.ArgumentParser:
     inj.add_argument("message", nargs="?")
     inj.add_argument("--user", default="U_FAKE")
     inj.set_defaults(func=cmd_inject)
+
+    sy = sub.add_parser(
+        "sync",
+        help="Catch up from Slack history; repair outbox (does not move read cursors)",
+    )
+    sy.add_argument("key")
+    sy.add_argument(
+        "--limit",
+        type=int,
+        default=200,
+        help="Max history messages to fetch (default 200)",
+    )
+    sy.set_defaults(func=cmd_sync)
 
     d = sub.add_parser("daemon", help="Manage background daemon")
     d.add_argument("action", choices=("start", "stop", "status"), nargs="?", default="status")
