@@ -391,7 +391,7 @@ Never commit tokens. Prefer env vars in production/agent settings.
 ### Phase 2 — Slack Socket Mode ✅
 
 - Bolt Socket Mode in the daemon; demux for `thread` / `dm` / `app`; outbox send via Web API.
-- Auto still falls back to fake + warning if daemon down (embed deferred).
+- Auto falls back to embed + warning if daemon down.
 - End-to-end: real Slack ↔ `sfd read`/`write` when tokens are configured.
 
 ### Phase 3 — Async + polish (in progress)
@@ -407,7 +407,7 @@ Queues stay local-first. Slack is not the source of truth for cursors; sync is c
 | Order | Task | Why this order |
 |------:|------|----------------|
 | 1 | ✅ **`sfd sync <key>`** — pull `conversations.history` / `replies`; append missing inbound by `ts`; repair outbox `pending`/`failed` (match bot messages → `sent` + `ts`) | Fixes live divergence now; unblocks trustworthy `--chat` |
-| 2 | **Embed transport** — in-process Socket Mode when daemon missing (with warning) | Completes AD-3; depends on stable Slack bridge used by sync/daemon |
+| 2 | ✅ **Embed transport** — in-process Socket Mode when daemon missing (with warning) | Completes AD-3; depends on stable Slack bridge used by sync/daemon |
 | 3 | **Retention / trim** — max age/bytes for JSONL | Safety polish after sync can grow logs |
 | 4 | CLI pipe sugar / UX nits | Lowest risk; after core paths solid |
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
@@ -14,6 +13,7 @@ from slack_fd.logstore import LogName, LogStore
 from slack_fd.records import MessageRecord
 from slack_fd.transport.base import Transport
 from slack_fd.transport.daemon import DaemonTransport
+from slack_fd.transport.embed import EmbedTransport
 from slack_fd.transport.fake import FakeTransport
 
 TransportName = Literal["fake", "daemon", "embed", "auto"]
@@ -56,29 +56,20 @@ class SlackStream:
             return FakeTransport(data_dir)
 
         if transport == "embed":
-            raise NotImplementedError(
-                "embed transport arrives in Phase 2; use daemon or fake for now"
-            )
+            return EmbedTransport(data_dir)
 
         if transport == "daemon":
             t = DaemonTransport(data_dir)
             t.connect()
             return t
 
-        # auto: daemon if up, else local fake + warning (embed comes in Phase 2)
+        # auto: daemon if up, else embed + warning
         try:
             t = DaemonTransport(data_dir)
             t.connect()
             return t
         except DaemonUnavailable:
-            warnings.warn(
-                "sfd daemon is not running; using local fake transport. "
-                "Start shared mode with `sfd daemon start`. "
-                "(Phase 2 will auto-embed Socket Mode instead of fake.)",
-                UserWarning,
-                stacklevel=3,
-            )
-            return FakeTransport(data_dir)
+            return EmbedTransport(data_dir)
 
     def __enter__(self) -> SlackStream:
         self._transport.open(self.key)

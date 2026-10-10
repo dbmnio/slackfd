@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import sys
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +26,15 @@ def _data_dir(args: argparse.Namespace) -> Path | None:
 
 
 def _resolve_transport(args: argparse.Namespace) -> Any:
-    """Prefer daemon; fall back to fake with warning unless forced."""
+    """Prefer daemon; fall back to embed (or fake if forced)."""
+    from slack_fd.transport.embed import EmbedTransport
+
     data = _data_dir(args)
     mode = os.environ.get("SFD_TRANSPORT", "auto")
     if mode == "fake":
         return FakeTransport(data)
+    if mode == "embed":
+        return EmbedTransport(data)
     if mode == "daemon":
         t = DaemonTransport(data)
         t.connect()
@@ -41,13 +44,7 @@ def _resolve_transport(args: argparse.Namespace) -> Any:
         t.connect()
         return t
     except DaemonUnavailable:
-        warnings.warn(
-            "sfd daemon is not running; using local fake transport. "
-            "Run `sfd daemon start` for shared use.",
-            UserWarning,
-            stacklevel=2,
-        )
-        return FakeTransport(data)
+        return EmbedTransport(data)
 
 
 def cmd_write(args: argparse.Namespace) -> int:
