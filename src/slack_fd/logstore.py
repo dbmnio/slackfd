@@ -160,6 +160,61 @@ class LogStore:
         rows.sort(key=lambda item: _chat_sort_key(item[0], item[1]))
         return rows
 
+    def trim(
+        self,
+        key: StreamKey,
+        *,
+        inbox_keep: int | None = None,
+        outbox_keep: int | None = None,
+    ) -> dict[str, int]:
+        """Drop oldest lines, keeping the newest N per log. Adjusts inbox cursors."""
+        with self._lock:
+            dropped_in = (
+                self._trim_log(key, "inbox", inbox_keep) if inbox_keep is not None else 0
+            )
+            dropped_out = (
+                self._trim_log(key, "outbox", outbox_keep)
+                if outbox_keep is not None
+                else 0
+            )
+            return {
+                "inbox_dropped": dropped_in,
+                "outbox_dropped": dropped_out,
+            }
+
+    def _trim_log(self, key: StreamKey, name: LogName, keep: int) -> int:
+        if keep < 0:
+            raise ValueError("keep must be >= 0")
+        path = self._log_path(key, name)
+        if not path.exists():
+            return 0
+        lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        if len(lines) <= keep:
+            return 0
+        dropped = len(lines) - keep
+        kept = lines[-keep:] if keep else []
+        rewritten: list[str] = []
+        for i, line in enumerate(kept):
+            rec = MessageRecord.from_dict(json.loads(line))
+            rec.offset = i
+            rewritten.append(json.dumps(rec.to_dict(), ensure_ascii=False))
+        path.write_text(
+            ("\n".join(rewritten) + "\n") if rewritten else "",
+            encoding="utf-8",
+        )
+        if name == "inbox" and dropped:
+            cursors = self.stream_dir(key) / "cursors"
+            if cursors.exists():
+                for cursor_path in cursors.iterdir():
+                    if not cursor_path.is_file():
+                        continue
+                    try:
+                        cur = int(cursor_path.read_text(encoding="utf-8").strip() or "-1")
+                    except ValueError:
+                        cur = -1
+                    cursor_path.write_text(str(max(-1, cur - dropped)) + "\n", encoding="utf-8")
+        return dropped
+
     def _cursor_path(self, key: StreamKey, consumer_id: str) -> Path:
         safe = consumer_id.replace("/", "_").replace("..", "_")
         return self.stream_dir(key) / "cursors" / safe

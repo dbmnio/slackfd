@@ -230,6 +230,25 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_trim(args: argparse.Namespace) -> int:
+    key = StreamKey.parse(args.key)
+    inbox_keep = args.inbox_keep if args.inbox_keep is not None else args.keep
+    outbox_keep = args.outbox_keep if args.outbox_keep is not None else args.keep
+    if inbox_keep is None and outbox_keep is None:
+        print("sfd: pass --keep N and/or --inbox-keep / --outbox-keep", file=sys.stderr)
+        return 2
+    store = LogStore(_data_dir(args) or default_data_dir())
+    result = store.trim(key, inbox_keep=inbox_keep, outbox_keep=outbox_keep)
+    if args.json:
+        print(json.dumps(result))
+    else:
+        print(
+            f"trim {key} inbox_dropped={result['inbox_dropped']} "
+            f"outbox_dropped={result['outbox_dropped']}"
+        )
+    return 0
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     data = _data_dir(args)
     action = args.action or "status"
@@ -340,6 +359,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max history messages to fetch (default 200)",
     )
     sy.set_defaults(func=cmd_sync)
+
+    tr = sub.add_parser("trim", help="Drop oldest log lines; keep newest N")
+    tr.add_argument("key")
+    tr.add_argument(
+        "--keep",
+        type=int,
+        default=None,
+        help="Keep newest N lines in both inbox and outbox",
+    )
+    tr.add_argument("--inbox-keep", type=int, default=None)
+    tr.add_argument("--outbox-keep", type=int, default=None)
+    tr.set_defaults(func=cmd_trim)
 
     d = sub.add_parser("daemon", help="Manage background daemon")
     d.add_argument("action", choices=("start", "stop", "status"), nargs="?", default="status")

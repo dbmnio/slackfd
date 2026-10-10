@@ -80,3 +80,19 @@ def test_iter_chat_merges_by_ts(tmp_path):
     )
     chat = store.iter_chat(key)
     assert [r.text for _, r in chat] == ["first", "first-reply-earlier", "second"]
+
+
+def test_trim_keeps_newest_and_adjusts_cursor(tmp_path):
+    store = LogStore(tmp_path)
+    key = StreamKey.dm("U2")
+    for i in range(5):
+        store.append(
+            key,
+            MessageRecord(offset=-1, direction="in", stream="", text=f"m{i}", ts=str(float(i))),
+        )
+    store.ack(key, "default", 3)  # cursor at 3
+    result = store.trim(key, inbox_keep=2)
+    assert result["inbox_dropped"] == 3
+    assert store.read_at(key, 0).text == "m3"
+    assert store.read_at(key, 1).text == "m4"
+    assert store.get_cursor(key, "default") == 0  # 3 - 3

@@ -83,5 +83,5 @@ pytest
 |-------|--------|
 | 0 Skeleton | done |
 | 1 Daemon + UDS IPC | done |
-| 2 Slack Socket Mode | **done** |
-| 3 Async + embed polish | planned |
+| 2 Slack Socket Mode | done |
+| 3 Async, sync, embed, trim | **done** (pipe sugar optional) |
