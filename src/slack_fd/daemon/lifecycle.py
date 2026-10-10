@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from slack_fd.errors import DaemonUnavailable
+from slack_fd.ipc import daemon_tcp_path, ipc_mode, read_tcp_endpoint
 from slack_fd.paths import (
     daemon_pid_path,
     daemon_sock_path,
@@ -28,24 +29,35 @@ def is_running(data_dir: Path | None = None) -> bool:
     pid = _read_pid(root)
     if pid is None or not _pid_alive(pid):
         return False
-    sock = daemon_sock_path(root)
-    return sock.exists()
+    if ipc_mode() == "tcp":
+        return read_tcp_endpoint(root) is not None
+    return daemon_sock_path(root).exists()
 
 
 def status(data_dir: Path | None = None) -> dict:
     root = resolve_data_dir(data_dir)
     pid = _read_pid(root)
     alive = pid is not None and _pid_alive(pid)
-    sock = daemon_sock_path(root)
+    mode = ipc_mode()
+    if mode == "tcp":
+        endpoint = read_tcp_endpoint(root)
+        endpoint_s = f"{endpoint[0]}:{endpoint[1]}" if endpoint else None
+        endpoint_ok = endpoint is not None
+    else:
+        sock = daemon_sock_path(root)
+        endpoint_s = str(sock)
+        endpoint_ok = sock.exists()
+
     info: dict = {
         "running": False,
         "pid": pid,
-        "socket": str(sock),
+        "ipc": mode,
+        "socket": endpoint_s,
         "data_dir": str(root),
         "pid_alive": alive,
-        "socket_exists": sock.exists(),
+        "socket_exists": endpoint_ok,
     }
-    if alive and sock.exists():
+    if alive and endpoint_ok:
         try:
             t = DaemonTransport(root)
             t.connect()
@@ -65,7 +77,6 @@ def start(data_dir: Path | None = None, *, timeout: float = 5.0) -> dict:
     if is_running(root):
         return {"started": False, "already_running": True, **status(root)}
 
-    # Stale pid/socket cleanup
     _cleanup_stale(root)
 
     log_path = root / "daemon.log"
@@ -138,12 +149,16 @@ def _pid_alive(pid: int) -> bool:
 
 
 def _cleanup_stale(data_dir: Path) -> None:
-    sock = None
+    paths: list[Path | None] = [
+        daemon_pid_path(data_dir),
+        daemon_tcp_path(data_dir),
+        daemon_sockpath_file(data_dir),
+    ]
     try:
-        sock = daemon_sock_path(data_dir)
+        paths.append(daemon_sock_path(data_dir))
     except OSError:
-        sock = None
-    for path in (sock, daemon_pid_path(data_dir), daemon_sockpath_file(data_dir)):
+        pass
+    for path in paths:
         if path is None:
             continue
         try:

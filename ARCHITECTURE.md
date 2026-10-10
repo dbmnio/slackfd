@@ -126,11 +126,12 @@ Not in library:
 
 Shell pipes are a blocking I/O model. The CLI uses the sync client only. Async belongs in the library for in-process async apps, not in `sfd` itself.
 
-### AD-8 — IPC: Unix domain socket + length-prefixed JSON RPC
+### AD-8 — IPC: Unix domain socket (default) or loopback TCP + length-prefixed JSON RPC
 
 Simple, debuggable, enough for local trusted clients. No protobuf requirement for v1. Platform note: v1 targets macOS/Linux; Windows named pipes later if needed.
 
-Socket path: prefer `<data_dir>/daemon.sock` when short enough; otherwise a hashed path under `$TMPDIR` (macOS `AF_UNIX` path length limit). The chosen path is recorded in `<data_dir>/daemon.sockpath`.
+- **unix** (default): prefer `<data_dir>/daemon.sock` when short enough; otherwise a hashed path under `$TMPDIR` (macOS `AF_UNIX` path length limit). Path recorded in `<data_dir>/daemon.sockpath`. Auth = filesystem modes (`0600` / `0700`).
+- **tcp** (`SFD_IPC=tcp`): bind **loopback only** (`127.0.0.1` / `::1`; non-loopback rejected). Auth token in `<data_dir>/daemon.token` (`0600`), sent on every RPC; endpoint in `<data_dir>/daemon.tcp`. For environments that block Unix domain sockets.
 
 ---
 

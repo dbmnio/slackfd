@@ -3,63 +3,106 @@
 File-descriptor-like streams over Slack conversations: open a stream by key, `read` / `write` messages, and look back through durable append-only logs.
 
 - Design: [ARCHITECTURE.md](ARCHITECTURE.md)
-- Slack app + tokens (scopes, Socket Mode, `xoxb` / `xapp`): [SLACK_SETUP.md](SLACK_SETUP.md)
+- Slack app + tokens: [SLACK_SETUP.md](SLACK_SETUP.md)
 
-**Phase 2 (current):** daemon + Unix socket RPC + JSONL logs + Slack Socket Mode demux/mux + sync library + CLI.
+## Install (recommended: pipx)
 
-## Install
+One tool, isolated env, `sfd` on your PATH:
+
+```bash
+# once
+python3 -m pip install --user pipx
+pipx ensurepath
+# restart the shell after ensurepath if `pipx` is not found
+
+# from this repo (local checkout)
+pipx install /path/to/slack_fd
+
+# reinstall / upgrade after pulls
+pipx install --force /path/to/slack_fd
+```
+
+Fish:
+
+```fish
+pipx install /path/to/slack_fd
+```
+
+Then:
+
+```bash
+sfd --help
+```
+
+**Why pipx?** Best fit for a CLI like `sfd`: no need to activate a venv every time, deps stay isolated, upgrades are one command. Plain `pip install --user .` also works but pollutes your user site-packages.
+
+### Dev install (contributors)
 
 ```bash
 cd slack_fd
 python3.12 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # fish: source .venv/bin/activate.fish
 pip install -e ".[dev]"
+pytest
 ```
 
 ## Configure Slack tokens
 
 ```bash
+# bash/zsh
 export SLACK_BOT_TOKEN='xoxb-...'
 export SLACK_APP_TOKEN='xapp-...'
-# optional: export SFD_DATA_DIR=~/.local/share/sfd
 ```
 
-See [SLACK_SETUP.md](SLACK_SETUP.md) (including App Home → Messages Tab).
+```fish
+set -gx SLACK_BOT_TOKEN 'xoxb-...'
+set -gx SLACK_APP_TOKEN 'xapp-...'
+```
 
-## Live test (bot DM)
+See [SLACK_SETUP.md](SLACK_SETUP.md) (App Home → Messages Tab is required for DMs).
+
+Optional: `SFD_DATA_DIR` (default `~/.local/share/sfd`).
+
+## Quick start
 
 ```bash
 sfd daemon start
-sfd daemon status   # expect "slack": true
+sfd daemon status          # slack: true when tokens are set
 
-# In Slack: DM the bot any message
-
-# Find your user id (U…) from the log, or use profile → Copy member ID
-sfd sync 'app:U_YOUR_USER_ID'         # catch up history; repair outbox (no cursor move)
-sfd log 'app:U_YOUR_USER_ID'
-sfd log --chat 'app:U_YOUR_USER_ID'   # merged timeline; logs stay separate
-sfd read 'app:U_YOUR_USER_ID' --timeout 5
-
-# Reply as the bot (explicit or pipe sugar)
-echo 'hello from sfd' | sfd write 'app:U_YOUR_USER_ID'
-echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'    # same: write when stdin is a pipe
-sfd 'app:U_YOUR_USER_ID' --timeout 10               # same: read when stdin is a tty
+# DM the bot in Slack, then:
+sfd sync 'app:U_YOUR_USER_ID'
+sfd log --chat 'app:U_YOUR_USER_ID'
+sfd 'app:U_YOUR_USER_ID' --timeout 10
+echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'
 
 sfd daemon stop
 ```
 
-`dm:U…` and `app:U…` both receive the same inbound IM (two stream aliases). Channel threads use `thread:<channel>:<thread_ts>` (bot must be invited).
+## IPC: Unix socket (default) vs local TCP
 
-Without tokens, the daemon still runs; use `sfd inject` for local testing.
+| Mode | When | Security |
+|------|------|----------|
+| **unix** (default) | Normal macOS/Linux | Socket file mode `0600` + data dir `0700` |
+| **tcp** | Orgs that block Unix domain sockets | **Loopback only** (`127.0.0.1` / `::1`) + required auth token file |
+
+```bash
+# TCP localhost (set before daemon start; clients need the same env)
+export SFD_IPC=tcp
+export SFD_TCP_HOST=127.0.0.1          # default; non-loopback is rejected
+export SFD_TCP_PORT=4173               # default; use 0 for ephemeral
+sfd daemon start
+```
+
+Token is auto-created at `$SFD_DATA_DIR/daemon.token` (`0600`). Clients read it automatically from the data dir. Endpoint is recorded in `daemon.tcp`.
+
+Do **not** bind to `0.0.0.0` — the daemon refuses non-loopback hosts.
 
 ## Library
 
 ```python
 from slack_fd import SlackStream, StreamKey
 
-key = StreamKey.parse("app:U01234567")
-
-with SlackStream(key) as s:  # talks to daemon when running
+with SlackStream("app:U01234567") as s:
     msg = s.read(timeout=30)
     if msg:
         s.write(f"echo: {msg.text}")
@@ -73,17 +116,6 @@ with SlackStream(key) as s:  # talks to daemon when running
 | `dm:<user_id>` | IM with a user |
 | `app:<user_id>` | User ↔ bot DM |
 
-## Tests
-
-```bash
-pytest
-```
-
 ## Status
 
-| Phase | Status |
-|-------|--------|
-| 0 Skeleton | done |
-| 1 Daemon + UDS IPC | done |
-| 2 Slack Socket Mode | done |
-| 3 Async, sync, embed, trim, pipe sugar | **done** |
+Phases 0–3 complete (daemon, Socket Mode, sync, embed, trim, CLI sugar, optional TCP IPC).

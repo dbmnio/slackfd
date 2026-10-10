@@ -1,4 +1,4 @@
-"""Unix-domain-socket client transport (Phase 1)."""
+"""Client transport for the sfd daemon (Unix socket or loopback TCP)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from slack_fd.errors import DaemonUnavailable, SendFailed, SlackFdError
+from slack_fd.ipc import ipc_mode, read_daemon_token, read_tcp_endpoint
 from slack_fd.keys import StreamKey
 from slack_fd.paths import daemon_sock_path, default_data_dir
 from slack_fd.records import MessageRecord
@@ -15,18 +16,27 @@ from slack_fd.rpc import RpcError, recv_msg, send_msg
 
 
 class DaemonTransport:
-    """Talks to sfd-daemon over a Unix domain socket."""
+    """Talks to sfd-daemon over Unix domain socket or authenticated loopback TCP."""
 
     def __init__(self, data_dir: Path | None = None) -> None:
         self.data_dir = (data_dir or default_data_dir()).resolve()
+        self.mode = ipc_mode()
         self.sock_path = daemon_sock_path(self.data_dir)
         self._sock: socket.socket | None = None
+        self._token: str | None = None
         self._lock = threading.Lock()
         self._next_id = 1
 
     def connect(self) -> None:
         if self._sock is not None:
             return
+        if self.mode == "tcp":
+            self._connect_tcp()
+        else:
+            self._connect_unix()
+        self._call("ping")
+
+    def _connect_unix(self) -> None:
         if not self.sock_path.exists():
             raise DaemonUnavailable(
                 f"daemon socket not found at {self.sock_path}; run `sfd daemon start`"
@@ -36,9 +46,34 @@ class DaemonTransport:
             sock.connect(str(self.sock_path))
         except OSError as e:
             sock.close()
-            raise DaemonUnavailable(f"cannot connect to daemon at {self.sock_path}: {e}") from e
+            raise DaemonUnavailable(
+                f"cannot connect to daemon at {self.sock_path}: {e}"
+            ) from e
         self._sock = sock
-        self._call("ping")
+        self._token = None
+
+    def _connect_tcp(self) -> None:
+        endpoint = read_tcp_endpoint(self.data_dir)
+        if endpoint is None:
+            raise DaemonUnavailable(
+                f"daemon TCP endpoint not found under {self.data_dir}; "
+                "start with SFD_IPC=tcp `sfd daemon start`"
+            )
+        host, port = endpoint
+        token = read_daemon_token(self.data_dir)
+        if not token:
+            raise DaemonUnavailable(
+                f"daemon token missing at {self.data_dir / 'daemon.token'}"
+            )
+        family = socket.AF_INET6 if ":" in host else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            sock.connect((host, port))
+        except OSError as e:
+            sock.close()
+            raise DaemonUnavailable(f"cannot connect to daemon at {host}:{port}: {e}") from e
+        self._sock = sock
+        self._token = token
 
     def open(self, key: StreamKey) -> None:
         self.connect()
@@ -137,8 +172,15 @@ class DaemonTransport:
                 raise DaemonUnavailable("not connected")
             req_id = self._next_id
             self._next_id += 1
+            payload: dict[str, Any] = {
+                "id": req_id,
+                "method": method,
+                "params": params,
+            }
+            if self._token is not None:
+                payload["token"] = self._token
             try:
-                send_msg(self._sock, {"id": req_id, "method": method, "params": params})
+                send_msg(self._sock, payload)
                 resp = recv_msg(self._sock)
             except (OSError, ConnectionError) as e:
                 self.close()
@@ -149,7 +191,7 @@ class DaemonTransport:
                 err = resp["error"]
                 code = err.get("code", "rpc_error")
                 message = err.get("message", "RPC error")
-                if code in {"daemon_unavailable"}:
+                if code in {"daemon_unavailable", "unauthorized"}:
                     raise DaemonUnavailable(message)
                 raise RpcError(code, message)
             result = resp.get("result")

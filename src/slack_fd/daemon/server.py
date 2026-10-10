@@ -13,6 +13,15 @@ from typing import Any
 from slack_fd.config import load_config
 from slack_fd.daemon.service import DaemonService
 from slack_fd.daemon.slack_conn import SlackBridge
+from slack_fd.ipc import (
+    daemon_tcp_path,
+    ensure_daemon_token,
+    ipc_mode,
+    tcp_bind_host,
+    tcp_bind_port,
+    tokens_match,
+    write_tcp_endpoint,
+)
 from slack_fd.keys import StreamKey
 from slack_fd.paths import (
     choose_sock_path,
@@ -32,9 +41,12 @@ class DaemonServer:
         self.data_dir = (data_dir or default_data_dir()).resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.data_dir, 0o700)
+        self.mode = ipc_mode()
         self.sock_path = choose_sock_path(self.data_dir)
         self.pid_path = daemon_pid_path(self.data_dir)
         self.service = DaemonService(self.data_dir)
+        self._auth_token: str | None = None
+        self._listen_label = ""
         self._slack: SlackBridge | None = None
         self._sock: socket.socket | None = None
         self._stopping = threading.Event()
@@ -45,7 +57,7 @@ class DaemonServer:
         self._write_pid()
         self._start_slack()
         assert self._sock is not None
-        log.info("daemon listening on %s (pid %s)", self.sock_path, os.getpid())
+        log.info("daemon listening on %s (pid %s)", self._listen_label, os.getpid())
         try:
             while not self._stopping.is_set():
                 try:
@@ -107,6 +119,21 @@ class DaemonServer:
             log.debug("skipping signal handlers (not in main thread)")
 
     def _bind(self) -> None:
+        if self.mode == "tcp":
+            host = tcp_bind_host()
+            port = tcp_bind_port()  # 0 = ephemeral; recorded in daemon.tcp
+            family = socket.AF_INET6 if host == "::1" else socket.AF_INET
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host, port))
+            sock.listen(64)
+            bound_port = int(sock.getsockname()[1])
+            self._sock = sock
+            self._auth_token = ensure_daemon_token(self.data_dir)
+            write_tcp_endpoint(self.data_dir, host, bound_port)
+            self._listen_label = f"tcp://{host}:{bound_port} (token auth required)"
+            return
+
         if self.sock_path.exists():
             self.sock_path.unlink()
         self.sock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +143,7 @@ class DaemonServer:
         sock.listen(64)
         self._sock = sock
         write_sockpath_file(self.data_dir, self.sock_path)
+        self._listen_label = f"unix://{self.sock_path}"
 
     def _write_pid(self) -> None:
         self.pid_path.write_text(str(os.getpid()) + "\n", encoding="utf-8")
@@ -127,7 +155,12 @@ class DaemonServer:
             except OSError:
                 pass
             self._sock = None
-        for path in (self.sock_path, self.pid_path, daemon_sockpath_file(self.data_dir)):
+        paths = [self.pid_path]
+        if self.mode == "tcp":
+            paths.append(daemon_tcp_path(self.data_dir))
+        else:
+            paths.extend([self.sock_path, daemon_sockpath_file(self.data_dir)])
+        for path in paths:
             try:
                 if path.exists():
                     path.unlink()
@@ -156,6 +189,12 @@ class DaemonServer:
         method = req.get("method")
         params = req.get("params") or {}
         try:
+            if self._auth_token is not None:
+                if not tokens_match(
+                    req.get("token") if isinstance(req.get("token"), str) else None,
+                    self._auth_token,
+                ):
+                    raise RpcError("unauthorized", "invalid or missing IPC token")
             if not isinstance(method, str):
                 raise RpcError("invalid_request", "method must be a string")
             if not isinstance(params, dict):
