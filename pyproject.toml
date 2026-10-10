@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slack-fd"
+version = "0.1.0"
+description = "File-descriptor-like streams over Slack conversations (Socket Mode daemon + CLI)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "slack_fd contributors" }]
+dependencies = [
+    "slack-bolt>=1.20",
+    "slack-sdk>=3.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+sfd = "slack_fd.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slack_fd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
