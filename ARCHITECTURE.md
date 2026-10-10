@@ -394,10 +394,11 @@ Never commit tokens. Prefer env vars in production/agent settings.
 - Auto still falls back to fake + warning if daemon down (embed deferred).
 - End-to-end: real Slack ↔ `sfd read`/`write` when tokens are configured.
 
-### Phase 3 — Async + polish
+### Phase 3 — Async + polish (in progress)
 
-- `AsyncSlackStream`, `follow`, embed transport, retention flags.
-- Docs / README quick start.
+- `AsyncSlackStream` via `asyncio.to_thread` over the sync client.
+- Merged chat *view* (`history()` / `sfd log --chat`) — physical inbox/outbox stay separate.
+- Remaining: embed transport, retention flags.
 
 ---
 

@@ -146,6 +146,18 @@ class LogStore:
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             return rec
 
+    def iter_chat(self, key: StreamKey) -> list[tuple[LogName, MessageRecord]]:
+        """Merged inbox+outbox view in conversation order (Slack ts, then log/offset).
+
+        Physical logs stay separate; this is a read-only projection for display.
+        """
+        rows: list[tuple[LogName, MessageRecord]] = []
+        for name in ("inbox", "outbox"):
+            for rec in self.iter_from(key, 0, log=name):  # type: ignore[arg-type]
+                rows.append((name, rec))
+        rows.sort(key=lambda item: _chat_sort_key(item[0], item[1]))
+        return rows
+
     def _cursor_path(self, key: StreamKey, consumer_id: str) -> Path:
         safe = consumer_id.replace("/", "_").replace("..", "_")
         return self.stream_dir(key) / "cursors" / safe
@@ -156,3 +168,15 @@ class LogStore:
             return 0
         with path.open(encoding="utf-8") as f:
             return sum(1 for _ in f)
+
+
+def _chat_sort_key(log_name: LogName, rec: MessageRecord) -> tuple:
+    """Sort by Slack ts when present; otherwise after timestamped rows."""
+    ts = rec.ts
+    if ts:
+        raw = ts.removeprefix("fake-") if ts.startswith("fake-") else ts
+        try:
+            return (0, float(raw), 0 if log_name == "inbox" else 1, rec.offset)
+        except ValueError:
+            pass
+    return (1, 0.0, 0 if log_name == "inbox" else 1, rec.offset)

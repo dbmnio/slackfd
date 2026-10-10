@@ -10,6 +10,7 @@ from typing import Literal
 
 from slack_fd.errors import DaemonUnavailable, Timeout
 from slack_fd.keys import StreamKey
+from slack_fd.logstore import LogName, LogStore
 from slack_fd.records import MessageRecord
 from slack_fd.transport.base import Transport
 from slack_fd.transport.daemon import DaemonTransport
@@ -125,3 +126,7 @@ class SlackStream:
             msg = self.read(timeout=None, ack=ack)
             if msg is not None:
                 yield msg
+
+    def history(self) -> list[tuple[LogName, MessageRecord]]:
+        """Merged inbox+outbox in chat order (local logs; does not move cursors)."""
+        return LogStore(self._data_dir).iter_chat(self.key)

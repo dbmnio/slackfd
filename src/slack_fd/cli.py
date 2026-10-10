@@ -124,6 +124,18 @@ def cmd_follow(args: argparse.Namespace) -> int:
 def cmd_log(args: argparse.Namespace) -> int:
     key = StreamKey.parse(args.key)
     store = LogStore(_data_dir(args) or default_data_dir())
+    if args.chat:
+        for name, rec in store.iter_chat(key):
+            if args.json:
+                row = rec.to_dict()
+                row["_log"] = name
+                print(json.dumps(row, ensure_ascii=False))
+            else:
+                status = f"\t{rec.status}" if rec.status else ""
+                ts = rec.ts or "-"
+                print(f"{rec.direction}\t{name}:{rec.offset}\t{ts}\t{rec.text}{status}")
+        return 0
+
     which = args.which
     logs = ("inbox", "outbox") if which == "both" else (which,)
     for name in logs:
@@ -236,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="both",
     )
     lg.add_argument("--from", dest="from_offset", type=int, default=0)
+    lg.add_argument(
+        "--chat",
+        action="store_true",
+        help="Merged conversation view (inbox+outbox by Slack ts); logs stay separate",
+    )
     lg.set_defaults(func=cmd_log)
 
     inj = sub.add_parser(

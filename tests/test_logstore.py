@@ -53,3 +53,30 @@ def test_outbox_status(tmp_path):
     assert updated is not None
     assert updated.status == "sent"
     assert updated.ts == "1.2"
+
+
+def test_iter_chat_merges_by_ts(tmp_path):
+    store = LogStore(tmp_path)
+    key = StreamKey.app("U1")
+    store.append(
+        key,
+        MessageRecord(offset=-1, direction="in", stream="", text="second", ts="2.0"),
+    )
+    store.append(
+        key,
+        MessageRecord(
+            offset=-1,
+            direction="out",
+            stream="",
+            text="first-reply-earlier",
+            ts="1.5",
+            status="sent",
+        ),
+        log="outbox",
+    )
+    store.append(
+        key,
+        MessageRecord(offset=-1, direction="in", stream="", text="first", ts="1.0"),
+    )
+    chat = store.iter_chat(key)
+    assert [r.text for _, r in chat] == ["first", "first-reply-earlier", "second"]
