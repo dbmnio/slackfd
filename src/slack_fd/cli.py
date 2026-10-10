@@ -379,7 +379,52 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+_SUBCOMMANDS = frozenset(
+    {"write", "read", "follow", "log", "inject", "sync", "trim", "daemon"}
+)
+_OPTS_WITH_VALUE = frozenset({"--data-dir", "--consumer"})
+
+
+def apply_key_sugar(argv: list[str], *, stdin_is_tty: bool | None = None) -> list[str]:
+    """Rewrite ``sfd <key>`` into read/write based on whether stdin is a pipe.
+
+    - ``sfd app:U1`` → ``sfd read app:U1`` (tty stdin)
+    - ``echo hi | sfd app:U1`` → ``sfd write app:U1`` (piped stdin)
+    Explicit subcommands are left unchanged.
+    """
+    if stdin_is_tty is None:
+        stdin_is_tty = sys.stdin.isatty()
+
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in _OPTS_WITH_VALUE:
+            i += 2
+            continue
+        if tok.startswith("--data-dir=") or tok.startswith("--consumer="):
+            i += 1
+            continue
+        if tok in {"--json", "-h", "--help"}:
+            i += 1
+            continue
+        if tok.startswith("-"):
+            # Unknown global flag; don't invent sugar ahead of it.
+            i += 1
+            continue
+        if tok in _SUBCOMMANDS:
+            return argv
+        try:
+            StreamKey.parse(tok)
+        except InvalidKey:
+            return argv
+        verb = "read" if stdin_is_tty else "write"
+        return [*argv[:i], verb, *argv[i:]]
+    return argv
+
+
 def main(argv: list[str] | None = None) -> None:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    argv = apply_key_sugar(raw)
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

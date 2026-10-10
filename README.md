@@ -40,8 +40,10 @@ sfd log 'app:U_YOUR_USER_ID'
 sfd log --chat 'app:U_YOUR_USER_ID'   # merged timeline; logs stay separate
 sfd read 'app:U_YOUR_USER_ID' --timeout 5
 
-# Reply as the bot
+# Reply as the bot (explicit or pipe sugar)
 echo 'hello from sfd' | sfd write 'app:U_YOUR_USER_ID'
+echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'    # same: write when stdin is a pipe
+sfd 'app:U_YOUR_USER_ID' --timeout 10               # same: read when stdin is a tty
 
 sfd daemon stop
 ```
@@ -84,4 +86,4 @@ pytest
 | 0 Skeleton | done |
 | 1 Daemon + UDS IPC | done |
 | 2 Slack Socket Mode | done |
-| 3 Async, sync, embed, trim | **done** (pipe sugar optional) |
+| 3 Async, sync, embed, trim, pipe sugar | **done** |

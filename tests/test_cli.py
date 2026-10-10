@@ -1,9 +1,10 @@
+import io
 import json
 from pathlib import Path
 
 import pytest
 
-from slack_fd.cli import main
+from slack_fd.cli import apply_key_sugar, main
 
 
 @pytest.fixture(autouse=True)
@@ -75,3 +76,44 @@ def test_cli_daemon_lifecycle(tmp_path: Path, monkeypatch, capsys):
         main(["--data-dir", data, "daemon", "stop"])
     except SystemExit as e:
         assert e.code == 0
+
+
+def test_apply_key_sugar_read_and_write():
+    assert apply_key_sugar(["app:U1"], stdin_is_tty=True) == ["read", "app:U1"]
+    assert apply_key_sugar(["app:U1", "--timeout", "5"], stdin_is_tty=True) == [
+        "read",
+        "app:U1",
+        "--timeout",
+        "5",
+    ]
+    assert apply_key_sugar(["app:U1"], stdin_is_tty=False) == ["write", "app:U1"]
+    assert apply_key_sugar(["--data-dir", "/tmp", "app:U1"], stdin_is_tty=True) == [
+        "--data-dir",
+        "/tmp",
+        "read",
+        "app:U1",
+    ]
+    assert apply_key_sugar(["read", "app:U1"], stdin_is_tty=False) == ["read", "app:U1"]
+
+
+def test_cli_key_sugar_pipe_write_and_tty_read(tmp_path: Path, monkeypatch, capsys):
+    key = "dm:U99"
+    data = str(tmp_path)
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("piped-hi\n"))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    try:
+        main(["--data-dir", data, key])
+    except SystemExit as e:
+        assert e.code == 0
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    try:
+        main(["--data-dir", data, "inject", key, "incoming"])
+    except SystemExit as e:
+        assert e.code == 0
+    try:
+        main(["--data-dir", data, key, "--timeout", "0.5"])
+    except SystemExit as e:
+        assert e.code == 0
+    assert capsys.readouterr().out.strip() == "incoming"
