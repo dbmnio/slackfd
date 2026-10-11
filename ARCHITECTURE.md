@@ -11,7 +11,7 @@ This is **not** a Slack SDK replacement. The Slack Bolt/SDK remains the way to s
 - **FD-like API** — open a logical stream, block on `read`, `write` outbound messages, replay history by offset.
 - **No silent drops** — incoming and outgoing messages are appended to logs; consumers advance cursors.
 - **Shared uplink** — one Socket Mode connection (daemon) shared by many CLI invocations and library clients.
-- **Thin surface** — stream open/read/write/follow/ack only; no channels API, views, OAuth helpers, etc.
+- **Thin surface** — stream `read` / `write` (simple) plus explicit `fetch` / `flush` (advanced); no channels API, views, OAuth helpers, etc.
 - **Straightforward UX** — hide reconnect, framing, and Socket Mode ack details behind the daemon.
 
 ## Non-goals
@@ -20,6 +20,8 @@ This is **not** a Slack SDK replacement. The Slack Bolt/SDK remains the way to s
 - Exactly-once delivery across processes (at-least-once + idempotent consumers is enough).
 - Multi-workspace complexity in v1 (single Slack app / workspace config).
 - Being a general message bus for non-Slack transports.
+- SQS-style explicit per-message ack as the primary API (local inbox cursor advances on `read`).
+- Observable / push-to-user APIs (FD surface stays pull-shaped).
 
 ---
 
@@ -33,6 +35,95 @@ Bolt/SDK already handle websocket connect/reconnect, event dispatch, and `chat.p
 4. Shell as a first-class client (`echo hi | sfd …`)
 
 The durable stream + daemon **is** the product. The library is a thin client over that model, not a second SDK.
+
+---
+
+## Cursor model (inbox / outbox asymmetry)
+
+`read` and `write` are **not** symmetric operations. Symmetry is in the **gap** between a local cursor and a remote (Slack) cursor on each side.
+
+```text
+INBOX (messages originate remotely)
+  local_inbox_cursor ──────────────► remote_inbox_cursor
+                     │ gap: unknown locally │
+                     │ fetch() fills gap    │
+                     │ read() consumes +    │
+                     │   advances local     │
+
+OUTBOX (messages originate locally)
+  remote_outbox_cursor ────────────► local_outbox_cursor
+                     │ gap: known locally   │
+                     │ flush() closes gap   │
+                     │ write() appends +    │
+                     │   advances local     │
+```
+
+| Op | Advances | Meaning |
+|----|----------|---------|
+| `read` | local inbox cursor | Consume next known inbox message |
+| `fetch` | remote inbox cursor (locally) | Pull Slack → local store for the inbox gap |
+| `write` | local outbox cursor | Append pending outbound message |
+| `flush` | remote outbox cursor | Send pending → Slack; Slack accept is the ack |
+
+### Assumptions about prefixes (before the gap)
+
+| Prefix | Assumption | Realistic drift |
+|--------|------------|-----------------|
+| Inbox ≤ local cursor | Already-read history is correct | Edits/deletes of old msgs (uncommon for bot DMs; more common in human channels). True reorder / holes behind the cursor are very rare. |
+| Outbox ≤ remote cursor | Slack-acked sends are correct | Almost never wrong if remote only advances on Slack accept. Crash pain lives **in the gap** (sent remotely but still `pending` locally) → heal on `fetch`/`flush`. |
+
+Slack is the authority for **what exists in a conversation**. Local logs are a cache plus cursors. Healing reconciles the **gaps**, not the whole history every time.
+
+### Naming: `fetch`, not `sync`
+
+`fetch` = Slack → local (inbound catch-up + optional outbox repair from history).  
+It is **not** bidirectional. Outbound drain is `flush`.  
+(`sfd sync` remains a deprecated CLI alias for `fetch`.)
+
+---
+
+## Simple vs advanced API
+
+### Simple (default)
+
+Library/CLI keep Slack-side cursors up to date for you:
+
+```text
+read()
+  if local inbox cursor is at the front of known inbox:
+      fetch()                         # close remote→local inbox gap
+  return next message
+  advance local inbox cursor
+
+write(text)
+  append to outbox                    # advance local outbox cursor
+  flush() until outbox gap is closed  # catch remote up
+```
+
+### Advanced
+
+`read` / `write` only move **local** cursors (and the local store).  
+The caller is responsible for `fetch` / `flush` to move **remote** cursors.
+
+| Surface | Simple | Advanced |
+|---------|--------|----------|
+| Inbox catch-up | auto `fetch` when reading at tip | explicit `fetch` |
+| Outbox drain | auto `flush` after `write` | explicit `flush` |
+| Cursor on read | advances on `read` | same (optional peek flags later) |
+
+---
+
+## Pull backends (internal; poll later)
+
+The FD API is pull-shaped. Push exists only **inside** a websocket adapter (Socket Mode events → inbox).
+
+```text
+InboundSource.pull(since) → [Message]
+  websocket: drain buffered events (+ history heal when needed)
+  poll:      conversations.history / replies each call  (not implemented yet)
+```
+
+Keep a narrow internal port if useful; a formal interface can wait until a second backend exists. No poll implementation required for current phases.
 
 ---
 
@@ -54,6 +145,7 @@ Socket Mode protocol work in Go is feasible later; v1 prioritizes official SDK +
 - Inbound events: Socket Mode websocket (daemon owns the connection).
 - Outbound messages: Slack Web API (`chat.postMessage`, etc.) — Socket Mode is not a bidirectional message pipe.
 - The stream abstraction still presents one logical FD; two transports underneath are an implementation detail.
+- History/`fetch` uses Web API to heal gaps when the websocket was down or events were missed.
 
 ### AD-3 — Process model: daemon default, embed fallback
 
@@ -92,28 +184,30 @@ Not Kafka. Per-stream logs on disk, inspectable with `tail` / `jq`.
       outbox.jsonl     # intended sends + status
       meta.json        # key, created_at, slack ids
       cursors/
-        <consumer_id>  # last acked inbox offset
+        <consumer_id>  # last consumed inbox offset (advanced on read)
 ```
 
-- **Inbox:** every relevant inbound message appended once (daemon demux).
+- **Inbox:** every relevant inbound message appended once (daemon demux and/or `fetch`).
 - **Outbox:** every `write` appended before/with send; status updated (`pending` → `sent` | `failed`).
-- **Cursors:** per consumer id; `read()` returns next record after cursor and advances on ack (see API).
-- **Retention:** configurable max bytes/age later; v1 keeps everything local until explicitly trimmed.
+- **Cursors:** per consumer id; `read()` returns next record after cursor and advances the local inbox cursor.
+- **Retention:** configurable max bytes/age later; v1 keeps everything local until explicitly trimmed (`sfd trim`).
 
 SQLite is a possible later upgrade for indexing; not required for v1.
 
 ### AD-5 — Delivery semantics: at-least-once
 
 - Messages are not dropped from logs when clients disconnect.
-- `read` may redeliver if a client crashes before ack.
+- `read` advances the local inbox cursor when the message is returned; a crash after deliver but before persisting the cursor may redeliver.
 - Consumers should be prepared for duplicates (compare Slack `ts` / client message ids).
+- Outbox duplicates after crash-in-gap are mitigated by heal-before-send (`fetch` / pre-`flush` history match).
 
 ### AD-6 — Library scope: thin stream API only
 
 Supported concepts:
 
 - Stream keys (thread / DM / app DM)
-- `open` / `read` / `write` / `read_at` / `follow` / ack / cursor
+- Simple: `read` / `write` (auto `fetch` / `flush` as above)
+- Advanced: explicit `fetch` / `flush`; `read_at` / `follow` / `log` / `chat` view
 - Daemon lifecycle helpers (`ensure_daemon`, connect)
 
 Not in library:
@@ -133,6 +227,10 @@ Simple, debuggable, enough for local trusted clients. No protobuf requirement fo
 - **unix** (default): prefer `<data_dir>/daemon.sock` when short enough; otherwise a hashed path under `$TMPDIR` (macOS `AF_UNIX` path length limit). Path recorded in `<data_dir>/daemon.sockpath`. Auth = filesystem modes (`0600` / `0700`).
 - **tcp** (`SFD_IPC=tcp`): bind **loopback only** (`127.0.0.1` / `::1`; non-loopback rejected). Auth token in `<data_dir>/daemon.token` (`0600`), sent on every RPC; endpoint in `<data_dir>/daemon.tcp`. For environments that block Unix domain sockets.
 
+### AD-9 — Seek is inbound-only
+
+Cursor seek / `read --from` applies to the **inbox** consumer cursor, not a unified chat timeline and not outbox. Full conversation inspection is `log --chat` (merged view; does not move the read cursor).
+
 ---
 
 ## Stream keys (day 1)
@@ -143,14 +241,14 @@ Streams are addressed by a small sum type. Wire/CLI form is a single string.
 |------|----------|---------|
 | Thread | `thread:<channel_id>:<thread_ts>` | Channel or group DM thread (parent `thread_ts`) |
 | User DM | `dm:<user_id>` | IM with a user (resolved to channel internally) |
-| App / bot DM | `app:` | Messages directed at the bot’s DM conversation with the installing user(s); see note below |
+| App / bot DM | `app:<user_id>` | User ↔ bot DM |
 
 Examples:
 
 ```text
 thread:C01234567:1710000000.000100
 dm:U01234567
-app:
+app:U01234567
 ```
 
 ### Demux rules (inbound)
@@ -160,7 +258,7 @@ app:
 | `message` in channel/MPIM with `thread_ts` (or replies) | `thread:<channel>:<thread_ts>` |
 | `message` in channel with no thread (top-level) | Optionally `thread:<channel>:<ts>` treating the message as its own thread root — **v1: yes**, so top-level channel messages are addressable |
 | `message` in IM with a user | `dm:<other_user_id>` |
-| `message` in IM with the bot (user→bot) | `app:` (and also visible under `dm:<user_id>` if we can attribute — **v1: write to `app:` primary; mirror metadata includes `user`**) |
+| `message` in IM with the bot (user→bot) | `app:<user_id>` |
 
 Exact bot-DM routing should use Slack’s IM channel id + bot user id from auth.test, stored in daemon meta at startup.
 
@@ -170,22 +268,7 @@ Exact bot-DM routing should use Slack’s IM channel id + bot user id from auth.
 |------------|---------------|
 | `thread:…` | `chat.postMessage` to channel with `thread_ts` |
 | `dm:U…` | Open/lookup IM for user, then `chat.postMessage` |
-| `app:` | `chat.postMessage` to the app’s DM channel for the target user (CLI may require `--user` if ambiguous; library takes explicit user in write options for multi-user workspaces) |
-
-**v1 simplification for `app:` writes:** require `user_id` in write options when more than one user talks to the bot; reads on `app:` interleave all user→bot DMs with `user` on each record (or we split to `app:<user_id>`).
-
-**Revised day-1 choice (clearer):** use `app:<user_id>` for bot DMs per user, and reserve bare `app:` only as a fan-in follow that is CLI sugar over all `app:*` (optional, later). **Day 1 implement `app:<user_id>` only.**
-
-Final day-1 key set:
-
-```text
-thread:<channel_id>:<thread_ts>
-dm:<user_id>
-app:<user_id>
-```
-
-- `dm:` — you messaging a user (bot as participant in IM).
-- `app:` — user messaging the bot (same IM channel in practice; key distinguishes intent/cursor namespaces if needed, or aliases to same log).
+| `app:U…` | `chat.postMessage` to the app’s DM channel for that user |
 
 **Implementation note:** For a typical bot IM, `dm:U` and `app:U` may map to the **same Slack channel**. Prefer **one physical log** keyed by canonical IM channel id, with **aliases** `dm:U` / `app:U` pointing at it, so read cursors can still be separate per alias if useful. V1 may use one cursor namespace per alias.
 
@@ -216,7 +299,7 @@ JSONL lines are JSON objects (one message per line). Offsets are 0-based line nu
 
 ## Library API (thin)
 
-### Sync
+### Sync (simple)
 
 ```python
 from slack_fd import SlackStream, StreamKey
@@ -225,13 +308,22 @@ key = StreamKey.parse("thread:C012:1710000000.000100")
 # or StreamKey.thread(channel, thread_ts), .dm(user), .app(user)
 
 with SlackStream(key) as s:
-    msg = s.read()              # block until next unread for default consumer
-    msg = s.read(timeout=30)    # None / raise on timeout — pick one; prefer None
-    s.write("hello")
-    s.write("hello", user_id="U…")  # when required
+    msg = s.read()              # fetch if at tip; return next; advance local inbox cursor
+    msg = s.read(timeout=30)    # None on timeout
+    s.write("hello")            # outbox + flush until sent
     past = s.read_at(0)         # absolute offset; does not move cursor
     for msg in s.follow():      # block and yield forever
         ...
+```
+
+### Advanced (explicit gap management)
+
+```python
+with SlackStream(key, autosync=False, autoflush=False) as s:  # names TBD
+    s.fetch()                   # Slack → local (inbox gap + outbox heal)
+    msg = s.read(timeout=0)     # local only; None if nothing new
+    s.write("hello")            # pending only
+    s.flush()                   # drain outbox
 ```
 
 ### Async
@@ -257,7 +349,8 @@ SlackStream(key, transport="embed")  # in-process; warn if daemon also running
 ### Consumer / cursor
 
 - Default consumer id: `default` (CLI), or process-stable id if set via env/`consumer=`.
-- `read()` → return next message after cursor, then ack (advance). Optional `read(ack=False)` for peek + explicit `ack(offset)`.
+- Simple path: `read()` returns the next inbox message after the cursor and advances the local inbox cursor.
+- Optional peek / `--no-ack` style flags may remain for debugging; they are not the primary model.
 
 ---
 
@@ -269,23 +362,35 @@ sfd daemon start
 sfd daemon stop
 sfd daemon status
 
-# Write (stdin → stream)
+# Write (stdin → stream) — simple: enqueue + flush
 echo "hello" | sfd write thread:C012:1710000000.000100
 echo "hello" | sfd dm:U01234567          # sugar: write if stdin is a pipe
 echo "hello" | sfd app:U01234567
 
-# Read next (stdout)
+# Read next (stdout) — simple: fetch if at tip, then consume
 sfd read thread:C012:1710000000.000100
-sfd thread:C012:1710000000.000100        # default verb: read if tty/stdout focus;
-                                         # write if stdin is pipe — see UX note
+sfd thread:C012:1710000000.000100        # sugar: read if tty
 
-# History / follow
-sfd read --from 0 thread:…
+# Advanced: manage gaps yourself
+sfd fetch thread:…                       # Slack → local
+sfd flush thread:…                       # local → Slack
+sfd sync thread:…                        # deprecated alias for fetch
+
+# History / follow / views
+sfd read --from 0 thread:…               # seek inbox cursor (inbound only)
 sfd follow thread:…
 sfd log thread:…                         # dump inbox/outbox with offsets
+sfd log --chat thread:…                  # merged view by Slack ts; does not move read cursor
+sfd trim thread:… --keep 1000
 ```
 
-**UX note:** Convenient `echo hi | sfd <key>` and `sfd <key>` for read are desirable. Implement via stdin-isatty detection **or** explicit `read`/`write` subcommands (explicit preferred for scripts; sugar allowed for interactive use). Document both; prefer explicit subcommands in examples to avoid footguns.
+**UX note:** Convenient `echo hi | sfd <key>` and `sfd <key>` for read are desirable. Explicit `read`/`write` preferred in scripts; sugar allowed for interactive use.
+
+| Command | Direction | FD-ish analogy | Role |
+|---------|-----------|----------------|------|
+| `sfd fetch` | Slack → local | Fill the receive buffer from the uplink | Catch up inbox; heal outbox already in Slack |
+| `sfd flush` | Local → Slack | Drain the send buffer | Send remaining pending/failed outbox |
+| `sfd sync` | — | — | Deprecated alias for `fetch` |
 
 ---
 
@@ -293,34 +398,31 @@ sfd log thread:…                         # dump inbox/outbox with offsets
 
 ```text
 slack_fd/
-  ARCHITECTURE.md          # this file
-  README.md                # quick start (later)
+  ARCHITECTURE.md
+  README.md
+  SLACK_SETUP.md
   pyproject.toml
   src/
     slack_fd/
       __init__.py          # public: SlackStream, AsyncSlackStream, StreamKey
-      keys.py              # StreamKey parse/format
-      records.py           # Message record types
+      keys.py
+      records.py
       logstore.py          # JSONL inbox/outbox + cursors
+      fetch.py             # Slack → local (inbox + outbox heal)
+      flush.py             # local → Slack (outbox drain)
       transport/
-        __init__.py
-        base.py            # Transport protocol
-        daemon.py          # UDS RPC client
-        embed.py           # in-process connection manager
-      client_sync.py       # SlackStream
-      client_async.py      # AsyncSlackStream
+        base.py
+        daemon.py
+        embed.py
+        fake.py
+      client_sync.py
+      client_async.py
       daemon/
-        __init__.py
-        server.py          # UDS server loop
-        slack_conn.py      # Bolt Socket Mode + Web API
-        demux.py           # event → stream key → logstore
-        mux.py             # outbox drain → chat.postMessage
-      cli.py               # sfd entrypoint
+        server.py
+        slack_conn.py
+        service.py
+      cli.py
   tests/
-    test_keys.py
-    test_logstore.py
-    test_demux.py
-    test_client_fake_transport.py
 ```
 
 Entry points (pyproject):
@@ -334,8 +436,8 @@ Entry points (pyproject):
 1. Load config/tokens (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, or config file).
 2. Connect Socket Mode; auto-reconnect (Bolt).
 3. On event: ack promptly → demux → append inbox JSONL → notify waiters over UDS.
-4. On client write RPC: append outbox → send via Web API → update status.
-5. Serve read/follow/log/cursor RPCs from logstore.
+4. On client write RPC: append outbox → send via Web API → update status (or defer send to `flush` in advanced mode).
+5. Serve read/follow/log/fetch/flush/cursor RPCs from logstore + Web API.
 6. PID file + socket path; graceful shutdown.
 
 ---
@@ -371,7 +473,8 @@ Never commit tokens. Prefer env vars in production/agent settings.
 ## Security (local)
 
 - UDS socket mode `0600`, directory `0700`.
-- Trusted local user model only; no auth protocol on the socket in v1.
+- Trusted local user model only; no auth protocol on the unix socket in v1.
+- TCP mode requires a local auth token file (`0600`) and loopback bind only.
 - Logs may contain message text — treat data dir as sensitive.
 
 ---
@@ -400,35 +503,30 @@ Never commit tokens. Prefer env vars in production/agent settings.
 - ✅ `AsyncSlackStream` via `asyncio.to_thread` over the sync client.
 - ✅ Merged chat *view* (`history()` / `sfd log --chat`) — physical inbox/outbox stay separate.
 - ✅ Chat table formatting for `--chat`.
-- ✅ Fetch/flush, embed, trim, CLI key/pipe sugar.
+- ✅ Fetch/flush, embed, trim, CLI key/pipe sugar, optional TCP IPC.
 
-### Task backlog (implementation order)
+### Phase 4 — Simple API semantics (planned)
 
-Queues stay local-first. Slack is not the source of truth for cursors; fetch is catch-up / repair only.
+Wire the cursor/gap model into default `read` / `write` behavior:
 
-| Order | Task | Why this order |
-|------:|------|----------------|
-| 1 | ✅ **`sfd fetch <key>`** — pull `conversations.history` / `replies`; append missing inbound by `ts`; repair outbox `pending`/`failed` (match bot messages → `sent` + `ts`) | Fixes live divergence now; unblocks trustworthy `--chat` |
-| 2 | ✅ **Embed transport** — in-process Socket Mode when daemon missing (with warning) | Completes AD-3 |
-| 3 | ✅ **Retention / trim** — `sfd trim <key> --keep N` (newest N; adjusts cursors) | Safety polish after fetch can grow logs |
-| 4 | ✅ CLI pipe sugar — `sfd <key>` → read (tty) / write (pipe) | Lowest risk; after core paths solid |
+| Order | Task | Notes |
+|------:|------|-------|
+| 1 | Auto-`fetch` on `read` when at inbox tip | Incremental by `ts`; does not rewrite prefix |
+| 2 | Auto-`flush` on `write` until outbox gap closed | Heal-before-send stays |
+| 3 | Opt-out flags / advanced mode | Explicit `fetch`/`flush` only; no auto gap close |
+| 4 | Seek/read documented as inbound-only | `log --chat` for full transcript |
+| 5 | (Optional) internal `InboundSource` port | Websocket now; poll later if needed |
 
-Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history, moving read cursors automatically.
-
-| Command | Direction | FD-ish analogy | Role |
-|---------|-----------|----------------|------|
-| `sfd fetch` | Slack → local | Fill the receive buffer from the uplink | Catch up inbox; mark outbox sent if already in Slack |
-| `sfd flush` | Local → Slack | Drain the send buffer | Send remaining pending/failed outbox |
-| `sfd sync` | — | — | Deprecated alias for `fetch` |
+Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history behind the local cursor, moving read cursors automatically during `fetch`.
 
 ---
 
 ## Open questions (deferred, not blocking)
 
 1. Should top-level channel messages auto-create `thread:<channel>:<ts>` streams? (**lean yes**)
-2. Separate cursors for inbox vs unified timeline of in+out? (**lean: inbox cursor for `read`; `log` shows both**)
-3. Message subtype filtering (bot_message, message_changed, deletes)? (**v1: store text messages; skip noisy subtypes or store with flags**)
-4. Distribution: pip-only vs eventual Go rewrite for single binary.
+2. Message subtype filtering (bot_message, message_changed, deletes)? (**v1: store text messages; skip noisy subtypes or store with flags**)
+3. Distribution: pip-only vs eventual Go rewrite for single binary.
+4. Exact names for advanced opt-outs (`autosync` is a misnomer if the op is `fetch` — prefer `autofetch` / `autoflush`).
 
 ---
 
@@ -437,11 +535,13 @@ Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history, m
 | Decision | Choice |
 |----------|--------|
 | Language | Python + official Bolt |
-| Inbound | Socket Mode |
-| Outbound | Web API |
+| Inbound | Socket Mode (+ history heal via `fetch`) |
+| Outbound | Web API (`flush`) |
 | Process | Daemon default; embed + warning fallback |
 | Storage | Per-stream JSONL + cursors |
+| Truth model | Slack authoritative in the gaps; local prefix assumed stable; heal on reconnect |
+| Cursor model | Inbox: remote leads → `fetch` then `read`; Outbox: local leads → `write` then `flush` |
 | Keys (day 1) | `thread:…`, `dm:…`, `app:<user_id>` |
-| Library | Thin stream API (sync + async) |
-| CLI | Sync only; explicit read/write + pipe sugar |
-| Not doing | Full Slack SDK layer |
+| Library | Thin stream API (sync + async); simple auto gap-close |
+| CLI | Sync only; explicit read/write + pipe sugar; `fetch`/`flush` advanced |
+| Not doing | Full Slack SDK layer; primary explicit-ack API; poll backend (yet) |

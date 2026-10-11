@@ -5,6 +5,18 @@ File-descriptor-like streams over Slack conversations: open a stream by key, `re
 - Design: [ARCHITECTURE.md](ARCHITECTURE.md)
 - Slack app + tokens: [SLACK_SETUP.md](SLACK_SETUP.md)
 
+## Model (short)
+
+Inbox and outbox are not mirrors of the same op — they close gaps in opposite directions:
+
+| Side | Gap | Close gap | Consume / produce |
+|------|-----|-----------|-------------------|
+| **Inbox** | remote ahead of local | `fetch` (Slack → local) | `read` advances local inbox cursor |
+| **Outbox** | local ahead of remote | `flush` (local → Slack) | `write` advances local outbox cursor |
+
+**Simple API (target):** `read` fetches when at the tip of known inbox, then advances the local cursor; `write` enqueues then flushes until sent.  
+**Advanced:** call `fetch` / `flush` yourself. (`sync` is a deprecated alias for `fetch`.)
+
 ## Install (recommended: pipx)
 
 One tool, isolated env, `sfd` on your PATH:
@@ -69,8 +81,8 @@ Optional: `SFD_DATA_DIR` (default `~/.local/share/sfd`).
 sfd daemon start
 sfd daemon status          # slack: true when tokens are set
 
-# DM the bot in Slack, then:
-sfd fetch 'app:U_YOUR_USER_ID'   # Slack → local (like filling the recv buffer)
+# DM the bot in Slack, then (advanced gap management — works today):
+sfd fetch 'app:U_YOUR_USER_ID'   # Slack → local (fill inbox gap; heal outbox)
 sfd flush 'app:U_YOUR_USER_ID'   # local → Slack (drain pending/failed outbox)
 sfd log --chat 'app:U_YOUR_USER_ID'
 sfd 'app:U_YOUR_USER_ID' --timeout 10
@@ -78,6 +90,8 @@ echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'
 
 sfd daemon stop
 ```
+
+Today, `read` / `write` talk to the local logs (and daemon send path) without auto-`fetch` on every read. Use explicit `fetch` / `flush` when catching up after downtime. Auto gap-close on simple `read`/`write` is planned (see ARCHITECTURE Phase 4).
 
 ## IPC: Unix socket (default) vs local TCP
 
@@ -119,4 +133,5 @@ with SlackStream("app:U01234567") as s:
 
 ## Status
 
-Phases 0–3 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, optional TCP IPC).
+Phases 0–3 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, optional TCP IPC).  
+Phase 4 planned: simple-API auto `fetch`/`flush` on `read`/`write` (see [ARCHITECTURE.md](ARCHITECTURE.md)).
