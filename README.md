@@ -17,9 +17,30 @@ Inbox and outbox are not mirrors of the same op — they close gaps in opposite 
 **Simple API (default):** `read` fetches when at the tip of known inbox, then advances the local cursor; `write` enqueues then flushes until sent.  
 **Advanced:** `--no-fetch` / `--no-flush`, or `autofetch=False` / `autoflush=False`, and call `fetch` / `flush` yourself. (`sync` is a deprecated alias for `fetch`.)
 
-## Install (recommended: pipx)
+## Install
 
-One tool, isolated env, `sfd` on your PATH:
+Either **uv** or **pipx** puts `sfd` on your PATH in an isolated env. Prefer **uv** if you want the installer to fetch/manage the Python version as well (`requires-python >=3.11`).
+
+### uv (recommended)
+
+```bash
+# once — https://docs.astral.sh/uv/
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# from this repo (local checkout); uv installs a suitable Python if needed
+uv tool install /path/to/slack_fd
+
+# pin a version explicitly (optional)
+uv tool install --python 3.12 /path/to/slack_fd
+
+# reinstall / upgrade after pulls
+uv tool install --force /path/to/slack_fd
+# or: uv tool upgrade slack-fd
+```
+
+Ensure `uv tool`’s bin dir is on your `PATH` (the installer usually does this; see `uv tool dir --bin` if `sfd` is missing).
+
+### pipx
 
 ```bash
 # once
@@ -34,11 +55,7 @@ pipx install /path/to/slack_fd
 pipx install --force /path/to/slack_fd
 ```
 
-Fish:
-
-```fish
-pipx install /path/to/slack_fd
-```
+Fish is the same once the tool is on `PATH`: `uv tool install …` or `pipx install …`.
 
 Then:
 
@@ -46,9 +63,21 @@ Then:
 sfd --help
 ```
 
-**Why pipx?** Best fit for a CLI like `sfd`: no need to activate a venv every time, deps stay isolated, upgrades are one command. Plain `pip install --user .` also works but pollutes your user site-packages.
+Plain `pip install --user .` also works but pollutes your user site-packages.
 
 ### Dev install (contributors)
+
+With uv:
+
+```bash
+cd slack_fd
+uv venv --python 3.12
+source .venv/bin/activate   # fish: source .venv/bin/activate.fish
+uv pip install -e ".[dev]"
+pytest
+```
+
+With venv + pip:
 
 ```bash
 cd slack_fd
