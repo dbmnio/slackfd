@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from slack_fd.daemon.demux import demux_message_event
-from slack_fd.daemon.mux import apply_send_result, send_message
 from slack_fd.keys import StreamKey
 from slack_fd.logstore import LogStore
 from slack_fd.records import MessageRecord
@@ -68,40 +67,21 @@ class DaemonService:
         *,
         user_id: str | None = None,
     ) -> MessageRecord:
+        """Append a pending outbox row. Remote send is ``flush_stream`` / autoflush."""
+        # Prefer explicit user_id for dm/app if provided on write.
+        send_user = user_id or key.user_id
         rec = MessageRecord(
             offset=-1,
             direction="out",
             stream=key.format(),
             text=text,
-            user=user_id or key.user_id,
+            user=send_user,
             channel=key.channel_id,
             thread_ts=key.thread_ts,
             status="pending",
             client_msg_id=str(uuid.uuid4()),
         )
-        written = self.store.append(key, rec, log="outbox")
-
-        if self.slack and self.slack.client is not None:
-            try:
-                # Prefer explicit user_id for dm/app if provided on write.
-                send_key = key
-                if key.kind in {"dm", "app"} and user_id:
-                    send_key = StreamKey(kind=key.kind, user_id=user_id)
-                data = send_message(self.slack.client, send_key, text)
-                status, ts, error = apply_send_result(written, data)
-                updated = self.store.update_outbox_status(
-                    key, written.offset, status, ts=ts, error=error  # type: ignore[arg-type]
-                )
-                if updated is not None:
-                    return updated
-            except Exception as e:
-                log.exception("slack send failed for %s", key)
-                updated = self.store.update_outbox_status(
-                    key, written.offset, "failed", error=str(e)
-                )
-                if updated is not None:
-                    return updated
-        return written
+        return self.store.append(key, rec, log="outbox")
 
     def ack(self, key: StreamKey, consumer_id: str, offset: int) -> None:
         self.store.ack(key, consumer_id, offset)

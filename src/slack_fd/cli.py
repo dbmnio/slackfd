@@ -61,7 +61,11 @@ def cmd_write(args: argparse.Namespace) -> int:
     transport = _resolve_transport(args)
     try:
         with SlackStream(
-            key, transport=transport, consumer_id=args.consumer, data_dir=_data_dir(args)
+            key,
+            transport=transport,
+            consumer_id=args.consumer,
+            data_dir=_data_dir(args),
+            autoflush=not getattr(args, "no_flush", False),
         ) as s:
             rec = s.write(text, user_id=args.user)
     finally:
@@ -69,7 +73,11 @@ def cmd_write(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(rec.to_dict(), ensure_ascii=False))
     else:
-        print(f"wrote outbox offset={rec.offset} stream={rec.stream}", file=sys.stderr)
+        status = rec.status or "?"
+        print(
+            f"wrote outbox offset={rec.offset} status={status} stream={rec.stream}",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -78,7 +86,11 @@ def cmd_read(args: argparse.Namespace) -> int:
     transport = _resolve_transport(args)
     try:
         with SlackStream(
-            key, transport=transport, consumer_id=args.consumer, data_dir=_data_dir(args)
+            key,
+            transport=transport,
+            consumer_id=args.consumer,
+            data_dir=_data_dir(args),
+            autofetch=not getattr(args, "no_fetch", False),
         ) as s:
             if args.from_offset is not None:
                 rec = s.read_at(args.from_offset)
@@ -103,7 +115,11 @@ def cmd_follow(args: argparse.Namespace) -> int:
     transport = _resolve_transport(args)
     try:
         with SlackStream(
-            key, transport=transport, consumer_id=args.consumer, data_dir=_data_dir(args)
+            key,
+            transport=transport,
+            consumer_id=args.consumer,
+            data_dir=_data_dir(args),
+            autofetch=not getattr(args, "no_fetch", False),
         ) as s:
             try:
                 for rec in s.follow(ack=not args.no_ack):
@@ -343,14 +359,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    w = sub.add_parser("write", help="Append/send a message to a stream")
+    w = sub.add_parser("write", help="Append to outbox; flush to Slack (unless --no-flush)")
     w.add_argument("key", help="Stream key (thread:… / dm:… / app:…)")
     w.add_argument("message", nargs="?", help="Message text (default: stdin)")
     w.add_argument("--user", help="User id when required for app/dm writes")
     w.add_argument("--allow-empty", action="store_true")
+    w.add_argument(
+        "--no-flush",
+        action="store_true",
+        help="Advanced: leave message pending; call `sfd flush` yourself",
+    )
     w.set_defaults(func=cmd_write)
 
-    r = sub.add_parser("read", help="Read next inbox message (or --from offset)")
+    r = sub.add_parser(
+        "read",
+        help="Read next inbox message (fetches at tip unless --no-fetch)",
+    )
     r.add_argument("key")
     r.add_argument("--timeout", type=float, default=None, help="Seconds; default: block")
     r.add_argument("--from", dest="from_offset", type=int, default=None)
@@ -360,11 +384,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="With --from, advance cursor to that offset",
     )
+    r.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Advanced: do not fetch from Slack when at inbox tip",
+    )
     r.set_defaults(func=cmd_read)
 
     f = sub.add_parser("follow", help="Follow inbox like tail -f")
     f.add_argument("key")
     f.add_argument("--no-ack", action="store_true")
+    f.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Advanced: do not fetch from Slack when at inbox tip",
+    )
     f.set_defaults(func=cmd_follow)
 
     lg = sub.add_parser("log", help="Dump inbox/outbox with offsets")

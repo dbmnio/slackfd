@@ -14,8 +14,8 @@ Inbox and outbox are not mirrors of the same op — they close gaps in opposite 
 | **Inbox** | remote ahead of local | `fetch` (Slack → local) | `read` advances local inbox cursor |
 | **Outbox** | local ahead of remote | `flush` (local → Slack) | `write` advances local outbox cursor |
 
-**Simple API (target):** `read` fetches when at the tip of known inbox, then advances the local cursor; `write` enqueues then flushes until sent.  
-**Advanced:** call `fetch` / `flush` yourself. (`sync` is a deprecated alias for `fetch`.)
+**Simple API (default):** `read` fetches when at the tip of known inbox, then advances the local cursor; `write` enqueues then flushes until sent.  
+**Advanced:** `--no-fetch` / `--no-flush`, or `autofetch=False` / `autoflush=False`, and call `fetch` / `flush` yourself. (`sync` is a deprecated alias for `fetch`.)
 
 ## Install (recommended: pipx)
 
@@ -81,17 +81,19 @@ Optional: `SFD_DATA_DIR` (default `~/.local/share/sfd`).
 sfd daemon start
 sfd daemon status          # slack: true when tokens are set
 
-# DM the bot in Slack, then (advanced gap management — works today):
-sfd fetch 'app:U_YOUR_USER_ID'   # Slack → local (fill inbox gap; heal outbox)
-sfd flush 'app:U_YOUR_USER_ID'   # local → Slack (drain pending/failed outbox)
+# DM the bot in Slack, then:
+sfd 'app:U_YOUR_USER_ID' --timeout 10          # read (auto-fetch at tip)
+echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'  # write (auto-flush)
 sfd log --chat 'app:U_YOUR_USER_ID'
-sfd 'app:U_YOUR_USER_ID' --timeout 10
-echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'
+
+# Advanced: manage gaps yourself
+sfd fetch 'app:U_YOUR_USER_ID'
+sfd flush 'app:U_YOUR_USER_ID'
+sfd read --no-fetch 'app:U_YOUR_USER_ID' --timeout 10
+echo 'queued' | sfd write --no-flush 'app:U_YOUR_USER_ID'
 
 sfd daemon stop
 ```
-
-Today, `read` / `write` talk to the local logs (and daemon send path) without auto-`fetch` on every read. Use explicit `fetch` / `flush` when catching up after downtime. Auto gap-close on simple `read`/`write` is planned (see ARCHITECTURE Phase 4).
 
 ## IPC: Unix socket (default) vs local TCP
 
@@ -118,9 +120,16 @@ Do **not** bind to `0.0.0.0` — the daemon refuses non-loopback hosts.
 from slack_fd import SlackStream, StreamKey
 
 with SlackStream("app:U01234567") as s:
-    msg = s.read(timeout=30)
+    msg = s.read(timeout=30)       # fetch if at tip; advance local inbox cursor
     if msg:
-        s.write(f"echo: {msg.text}")
+        s.write(f"echo: {msg.text}")  # outbox + flush
+
+# Advanced gap management
+with SlackStream("app:U01234567", autofetch=False, autoflush=False) as s:
+    s.fetch()
+    msg = s.read(timeout=0)
+    s.write("queued")
+    s.flush()
 ```
 
 ## Stream keys
@@ -133,5 +142,4 @@ with SlackStream("app:U01234567") as s:
 
 ## Status
 
-Phases 0–3 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, optional TCP IPC).  
-Phase 4 planned: simple-API auto `fetch`/`flush` on `read`/`write` (see [ARCHITECTURE.md](ARCHITECTURE.md)).
+Phases 0–4 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, TCP IPC, simple-API auto gap-close).

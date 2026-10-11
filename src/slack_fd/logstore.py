@@ -98,6 +98,13 @@ class LogStore:
         cursor = self.get_cursor(key, consumer_id)
         return self.read_at(key, cursor + 1, log=log)
 
+    def at_inbox_tip(self, key: StreamKey, consumer_id: str) -> bool:
+        """True when the consumer has no unread inbox messages locally."""
+        return self.next_after_cursor(key, consumer_id, log="inbox") is None
+
+    def inbox_len(self, key: StreamKey) -> int:
+        return self._line_count(self._log_path(key, "inbox"))
+
     def get_cursor(self, key: StreamKey, consumer_id: str) -> int:
         """Last acked offset; -1 means nothing acked yet."""
         path = self._cursor_path(key, consumer_id)

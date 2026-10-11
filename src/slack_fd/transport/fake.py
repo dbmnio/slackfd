@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from slack_fd.keys import StreamKey
 from slack_fd.logstore import LogStore
@@ -16,6 +17,7 @@ class FakeTransport:
     """Local logstore-only transport for tests and Phase 0 CLI."""
 
     def __init__(self, data_dir: Path | None = None) -> None:
+        self.data_dir = data_dir
         self._store = LogStore(data_dir)
         self._cond = threading.Condition()
         self._open_keys: set[str] = set()
@@ -65,6 +67,7 @@ class FakeTransport:
         *,
         user_id: str | None = None,
     ) -> MessageRecord:
+        """Append pending outbox row (remote cursor advances via ``flush``)."""
         rec = MessageRecord(
             offset=-1,
             direction="out",
@@ -73,17 +76,61 @@ class FakeTransport:
             user=user_id or key.user_id,
             channel=key.channel_id,
             thread_ts=key.thread_ts,
-            status="sent",
+            status="pending",
             client_msg_id=str(uuid.uuid4()),
-            ts=f"fake-{time.time():.6f}",
         )
-        written = self._store.append(key, rec, log="outbox")
-        # Phase 0: also mirror outbound into a side channel? Spec says outbox
-        # is separate; read() is inbox-only. Callers use `log` CLI for outbox.
-        return written
+        return self._store.append(key, rec, log="outbox")
 
     def ack(self, key: StreamKey, consumer_id: str, offset: int) -> None:
         self._store.ack(key, consumer_id, offset)
+
+    def fetch(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
+        """No Slack uplink — local-only no-op."""
+        return {
+            "key": key.format(),
+            "fetched": 0,
+            "inbound_added": 0,
+            "outbox_repaired": 0,
+            "notes": ["fake transport: fetch is a no-op"],
+        }
+
+    def flush(
+        self,
+        key: StreamKey,
+        *,
+        retry_failed: bool = True,
+        repair_first: bool = True,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """Mark pending/failed outbox rows as sent with synthetic timestamps."""
+        del repair_first, limit  # no remote history in fake mode
+        sent = 0
+        skipped = 0
+        for rec in list(self._store.iter_from(key, 0, log="outbox")):
+            if rec.status == "sent" and rec.ts:
+                skipped += 1
+                continue
+            if rec.status == "failed" and not retry_failed:
+                skipped += 1
+                continue
+            if rec.status not in {"pending", "failed"} and rec.ts:
+                skipped += 1
+                continue
+            self._store.update_outbox_status(
+                key,
+                rec.offset,
+                "sent",
+                ts=rec.ts or f"fake-{time.time():.6f}",
+            )
+            sent += 1
+        return {
+            "key": key.format(),
+            "repaired": 0,
+            "sent": sent,
+            "failed": 0,
+            "skipped": skipped,
+            "notes": ["fake transport: marked outbox sent locally"],
+        }
 
     def inject_inbound(
         self,

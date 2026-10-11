@@ -7,11 +7,13 @@ import logging
 import threading
 import warnings
 from pathlib import Path
+from typing import Any
 
 from slack_fd.config import load_config
 from slack_fd.daemon.service import DaemonService
 from slack_fd.daemon.slack_conn import SlackBridge
 from slack_fd.keys import StreamKey
+from slack_fd.logstore import LogStore
 from slack_fd.paths import default_data_dir
 from slack_fd.records import MessageRecord
 
@@ -88,8 +90,13 @@ class EmbedTransport:
     """Local DaemonService + optional in-process Socket Mode (solo use)."""
 
     def __init__(self, data_dir: Path | None = None) -> None:
+        self.data_dir = (data_dir or default_data_dir()).resolve()
         self._rt = _runtime(data_dir)
         self._warned = False
+
+    @property
+    def store(self) -> LogStore:
+        return self._rt.service.store
 
     def open(self, key: StreamKey) -> None:
         if not self._warned:
@@ -138,6 +145,26 @@ class EmbedTransport:
     def ack(self, key: StreamKey, consumer_id: str, offset: int) -> None:
         self._rt.ensure_started()
         self._rt.service.ack(key, consumer_id, offset)
+
+    def fetch(self, key: StreamKey, *, limit: int = 200) -> dict[str, Any]:
+        self._rt.ensure_started()
+        return self._rt.service.fetch_stream(key, limit=limit)
+
+    def flush(
+        self,
+        key: StreamKey,
+        *,
+        retry_failed: bool = True,
+        repair_first: bool = True,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        self._rt.ensure_started()
+        return self._rt.service.flush_stream(
+            key,
+            retry_failed=retry_failed,
+            repair_first=repair_first,
+            limit=limit,
+        )
 
     def inject_inbound(
         self,

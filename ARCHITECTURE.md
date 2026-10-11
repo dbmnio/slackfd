@@ -505,16 +505,16 @@ Never commit tokens. Prefer env vars in production/agent settings.
 - ✅ Chat table formatting for `--chat`.
 - ✅ Fetch/flush, embed, trim, CLI key/pipe sugar, optional TCP IPC.
 
-### Phase 4 — Simple API semantics (planned)
+### Phase 4 — Simple API semantics ✅
 
 Wire the cursor/gap model into default `read` / `write` behavior:
 
 | Order | Task | Notes |
 |------:|------|-------|
-| 1 | Auto-`fetch` on `read` when at inbox tip | Incremental by `ts`; does not rewrite prefix |
-| 2 | Auto-`flush` on `write` until outbox gap closed | Heal-before-send stays |
-| 3 | Opt-out flags / advanced mode | Explicit `fetch`/`flush` only; no auto gap close |
-| 4 | Seek/read documented as inbound-only | `log --chat` for full transcript |
+| 1 | ✅ Auto-`fetch` on `read` when at inbox tip | Soft-fail if Slack unavailable; does not rewrite prefix |
+| 2 | ✅ Auto-`flush` on `write` until outbox gap closed | `write` appends pending; flush heals then sends |
+| 3 | ✅ Opt-out flags / advanced mode | `autofetch=` / `autoflush=`; CLI `--no-fetch` / `--no-flush` |
+| 4 | ✅ Seek/read documented as inbound-only | `log --chat` for full transcript |
 | 5 | (Optional) internal `InboundSource` port | Websocket now; poll later if needed |
 
 Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history behind the local cursor, moving read cursors automatically during `fetch`.

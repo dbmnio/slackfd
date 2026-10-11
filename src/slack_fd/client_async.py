@@ -23,6 +23,8 @@ class AsyncSlackStream:
         transport: TransportName | Transport = "auto",
         data_dir: Path | None = None,
         raise_on_timeout: bool = False,
+        autofetch: bool = True,
+        autoflush: bool = True,
     ) -> None:
         self._sync = SlackStream(
             key,
@@ -30,9 +32,13 @@ class AsyncSlackStream:
             transport=transport,
             data_dir=data_dir,
             raise_on_timeout=raise_on_timeout,
+            autofetch=autofetch,
+            autoflush=autoflush,
         )
         self.key = self._sync.key
         self.consumer_id = self._sync.consumer_id
+        self.autofetch = self._sync.autofetch
+        self.autoflush = self._sync.autoflush
 
     async def __aenter__(self) -> AsyncSlackStream:
         await asyncio.to_thread(self._sync.__enter__)
@@ -40,6 +46,23 @@ class AsyncSlackStream:
 
     async def __aexit__(self, *exc: object) -> None:
         await asyncio.to_thread(self._sync.close)
+
+    async def fetch(self, *, limit: int = 200) -> dict:
+        return await asyncio.to_thread(self._sync.fetch, limit=limit)
+
+    async def flush(
+        self,
+        *,
+        retry_failed: bool = True,
+        repair_first: bool = True,
+        limit: int = 200,
+    ) -> dict:
+        return await asyncio.to_thread(
+            self._sync.flush,
+            retry_failed=retry_failed,
+            repair_first=repair_first,
+            limit=limit,
+        )
 
     async def read(
         self,
