@@ -54,7 +54,7 @@ class AsyncSlackStream:
         self,
         *,
         retry_failed: bool = True,
-        repair_first: bool = True,
+        repair_first: bool = False,
         limit: int = 200,
     ) -> dict:
         return await asyncio.to_thread(

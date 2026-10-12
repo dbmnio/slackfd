@@ -26,7 +26,31 @@ class FakeFlushClient:
         return {"ok": True, "ts": f"9.{len(self.posts)}"}
 
 
+def test_flush_default_sends_without_history_repair(tmp_path):
+    """Hot path: repair_first=False (default) — send only, no history HTTP."""
+    key = StreamKey.channel("DUSER")
+    store = LogStore(tmp_path)
+    store.append(
+        key,
+        MessageRecord(
+            offset=-1,
+            direction="out",
+            stream="",
+            text="a",
+            status="pending",
+        ),
+        log="outbox",
+    )
+    client = FakeFlushClient([])
+    result = flush_stream(key, data_dir=tmp_path, client=client, store=store)
+    assert result.repaired == 0
+    assert result.sent == 1
+    assert len(client.posts) == 1
+    assert store.read_at(key, 0, log="outbox").status == "sent"
+
+
 def test_flush_repairs_then_sends_remaining(tmp_path):
+    """Admin/legacy: repair_first=True matches history then sends the rest."""
     key = StreamKey.channel("DUSER")
     store = LogStore(tmp_path)
     store.append(

@@ -40,7 +40,7 @@ You can also create the app-level token later from **Basic Information → App-l
 1. **Features → OAuth & Permissions**.
 2. Under **Scopes → Bot Token Scopes**, add:
 
-### Required for day-1 `sfd` (thread / DM / app DM)
+### Required for day-1 `sfd` (channels / IM / MPIM)
 
 | Scope | Why |
 |-------|-----|
@@ -147,7 +147,7 @@ app_token = "xapp-..."
 | Check | How |
 |-------|-----|
 | Bot token works | Slack API tester or any `auth.test` call with `xoxb-` |
-| App token works | Daemon connects in Socket Mode without auth errors (Phase 2+) |
+| App token works | Daemon connects in Socket Mode without auth errors |
 | Events flow | DM the bot; daemon should append to the IM channel inbox (`D…`) |
 | Sends work | `sfd write D… "hi"` |
 

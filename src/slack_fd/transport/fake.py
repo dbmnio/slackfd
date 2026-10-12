@@ -99,7 +99,7 @@ class FakeTransport:
         key: StreamKey,
         *,
         retry_failed: bool = True,
-        repair_first: bool = True,
+        repair_first: bool = False,
         limit: int = 200,
     ) -> dict[str, Any]:
         """Mark pending/failed outbox rows as sent with synthetic timestamps."""

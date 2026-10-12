@@ -460,7 +460,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     w.add_argument("key", help="Stream key (C…/D…/G… or C…:thread_ts)")
     w.add_argument("message", nargs="?", help="Message text (default: stdin)")
-    w.add_argument("--user", help="User id when required for app/dm writes")
+    w.add_argument("--user", help="Optional user id metadata on the outbox row")
     w.add_argument("--allow-empty", action="store_true")
     w.add_argument(
         "--no-flush",
@@ -558,7 +558,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inj = sub.add_parser(
         "inject",
-        help="Inject fake inbound message (testing / Phase 1; no Slack)",
+        help="Inject fake inbound message (local testing; no Slack)",
     )
     inj.add_argument("key")
     inj.add_argument("message", nargs="?")

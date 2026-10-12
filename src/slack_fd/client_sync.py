@@ -25,12 +25,13 @@ TransportName = Literal["fake", "daemon", "embed", "auto"]
 class SlackStream:
     """File-descriptor-like sync handle for one conversation stream.
 
-    Simple API (websocket daemon defaults):
-      - ``read`` consumes the local inbox (daemon demux fills it; no client fetch)
-      - ``write`` enqueues; the daemon sends when Slack is up (durable outbox)
+    Websocket-daemon happy path:
+      - ``read`` / ``follow`` consume the local inbox (daemon demux fills it)
+      - ``write`` enqueues; the daemon sends when Slack is up
 
-    ``fetch`` / ``flush`` remain as optional admin/legacy RPCs (and for a future
-    pull backend). They are not part of the happy path for Socket Mode.
+    ``autoflush`` is for fake/embed (or when the transport left the row
+    pending). If the daemon already marked the row ``sent``, no client flush
+    runs. ``fetch`` / ``flush`` are admin/legacy (future pull backend).
     """
 
     def __init__(
@@ -172,8 +173,14 @@ class SlackStream:
         return self._transport.read_at(self.key, offset)
 
     def write(self, text: str, *, user_id: str | None = None) -> MessageRecord:
-        """Append to outbox (local cursor). With ``autoflush``, drain to Slack."""
+        """Enqueue outbox. Daemon send-on-write may already mark ``sent``.
+
+        Client ``autoflush`` only runs if the row is still pending/failed
+        (fake transport, or Slack was down in the daemon).
+        """
         rec = self._transport.write(self.key, text, user_id=user_id)
+        if rec.status == "sent" and rec.ts:
+            return rec
         if self.autoflush:
             self._try_flush()
             updated = self._store().read_at(self.key, rec.offset, log="outbox")

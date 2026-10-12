@@ -155,7 +155,7 @@ class EmbedTransport:
         key: StreamKey,
         *,
         retry_failed: bool = True,
-        repair_first: bool = True,
+        repair_first: bool = False,
         limit: int = 200,
     ) -> dict[str, Any]:
         self._rt.ensure_started()

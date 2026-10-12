@@ -44,7 +44,7 @@ class SlackBridge:
             from slack_sdk import WebClient
         except ImportError as e:
             raise RuntimeError(
-                "slack-bolt/slack-sdk not installed; run: pip install -e '.[slack]'"
+                "slack-bolt/slack-sdk not installed; reinstall slack-fd with deps"
             ) from e
 
         client = WebClient(token=self.config.bot_token)

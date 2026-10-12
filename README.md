@@ -14,7 +14,8 @@ For the **Socket Mode daemon** (default), clients consume and enqueue; the daemo
 | **Inbox** | `read` / `follow` (local cursor) | Websocket demux → inbox; heal on connect |
 | **Outbox** | `write` (durable enqueue) | Send on write when Slack is up |
 
-`sfd fetch` / `sfd flush` are **admin/legacy** (and for a future pull backend), not the happy path.
+`sfd fetch` / `sfd flush` are **admin/legacy** (and for a future pull backend), not the happy path.  
+Defaults: client `autofetch=False`; flush `repair_first=False` (send-only).
 
 ## Install
 

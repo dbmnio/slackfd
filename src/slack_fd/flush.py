@@ -2,8 +2,8 @@
 
 Distinct from ``fetch`` (Slack → local). Flush is local → Slack.
 
-By default, runs a history-based outbox *repair* first so messages that already
-exist in Slack (e.g. status stuck at pending) are marked sent and not duplicated.
+Default ``repair_first=False`` (send only). Opt into history repair with
+``repair_first=True`` for admin/legacy heal of stuck pending rows.
 """
 
 from __future__ import annotations
