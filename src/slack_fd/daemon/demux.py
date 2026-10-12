@@ -67,9 +67,10 @@ def demux_message_event(
     if channel_type == "im" or (isinstance(channel, str) and channel.startswith("D")):
         if not user:
             return None
-        # Same IM conversation addressable as app: or dm:
+        # One stream per IM. Prefer app:<user> (user → bot). Writing via dm:<user>
+        # still targets the same Slack IM; we do not dual-append inbound to both
+        # (that looked like duplicate cursors / messages in logs).
         keys.append(StreamKey.app(user))
-        keys.append(StreamKey.dm(user))
     else:
         # Channel / group / mpim: thread stream (top-level message is its own root)
         root = thread_ts or ts

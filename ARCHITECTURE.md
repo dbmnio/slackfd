@@ -257,8 +257,7 @@ app:U01234567
 |-------------|------------|
 | `message` in channel/MPIM with `thread_ts` (or replies) | `thread:<channel>:<thread_ts>` |
 | `message` in channel with no thread (top-level) | Optionally `thread:<channel>:<ts>` treating the message as its own thread root — **v1: yes**, so top-level channel messages are addressable |
-| `message` in IM with a user | `dm:<other_user_id>` |
-| `message` in IM with the bot (user→bot) | `app:<user_id>` |
+| `message` in IM (user→bot) | `app:<user_id>` only (not also `dm:` — avoids duplicate inbox appends) |
 
 Exact bot-DM routing should use Slack’s IM channel id + bot user id from auth.test, stored in daemon meta at startup.
 
@@ -270,7 +269,7 @@ Exact bot-DM routing should use Slack’s IM channel id + bot user id from auth.
 | `dm:U…` | Open/lookup IM for user, then `chat.postMessage` |
 | `app:U…` | `chat.postMessage` to the app’s DM channel for that user |
 
-**Implementation note:** For a typical bot IM, `dm:U` and `app:U` may map to the **same Slack channel**. Prefer **one physical log** keyed by canonical IM channel id, with **aliases** `dm:U` / `app:U` pointing at it, so read cursors can still be separate per alias if useful. V1 may use one cursor namespace per alias.
+**Implementation note:** `dm:U` and `app:U` send to the **same Slack IM**. Inbound events append to **`app:U` only**. Use `dm:U` when you want a separate outbound-oriented key/cursor; it is not a second copy of the inbox. True shared physical log + aliases can come later.
 
 ---
 

@@ -1,7 +1,7 @@
 from slack_fd.daemon.demux import demux_message_event
 
 
-def test_demux_im_to_app_and_dm():
+def test_demux_im_to_app_only():
     event = {
         "type": "message",
         "channel": "D012",
@@ -12,7 +12,7 @@ def test_demux_im_to_app_and_dm():
     }
     d = demux_message_event(event, bot_user_id="U_BOT")
     assert d is not None
-    assert [k.format() for k in d.keys] == ["app:U999", "dm:U999"]
+    assert [k.format() for k in d.keys] == ["app:U999"]
     assert d.text == "hello bot"
 
 
