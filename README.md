@@ -115,6 +115,10 @@ sfd 'app:U_YOUR_USER_ID' --timeout 10          # read (auto-fetch at tip)
 echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'  # write (auto-flush)
 sfd log --chat 'app:U_YOUR_USER_ID'
 
+# Reply/follow key from last inbox read (-i, default) or last sent outbox (-o)
+sfd key 'app:U_YOUR_USER_ID'           # e.g. app:U… or thread:C…:ts
+sfd key -o 'app:U_YOUR_USER_ID'        # requires a flushed send with Slack ts
+
 # Advanced: manage gaps yourself
 sfd fetch 'app:U_YOUR_USER_ID'
 sfd flush 'app:U_YOUR_USER_ID'

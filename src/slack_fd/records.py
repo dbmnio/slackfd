@@ -29,6 +29,23 @@ class MessageRecord:
         # Keep JSONL compact: omit nullish optional fields except core ones.
         return {k: v for k, v in data.items() if v is not None and v != {}}
 
+    def reply_stream_key(self) -> str:
+        """Stream key to follow/write for replies related to this message.
+
+        - Already on ``thread:…`` → that stream.
+        - ``app:`` / ``dm:`` → same IM stream (inbound demux does not use thread:D yet).
+        - Else ``thread:{channel}:{thread_ts or ts}`` when channel + ts are known.
+        """
+        stream = self.stream or ""
+        if stream.startswith("thread:"):
+            return stream
+        if stream.startswith("app:") or stream.startswith("dm:"):
+            return stream
+        root = self.thread_ts or self.ts
+        if self.channel and root:
+            return f"thread:{self.channel}:{root}"
+        return stream
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MessageRecord:
         known = {f.name for f in fields(cls)}

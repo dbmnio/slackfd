@@ -105,6 +105,25 @@ class LogStore:
     def inbox_len(self, key: StreamKey) -> int:
         return self._line_count(self._log_path(key, "inbox"))
 
+    def record_at_inbox_cursor(
+        self,
+        key: StreamKey,
+        consumer_id: str,
+    ) -> MessageRecord | None:
+        """Message at the consumer's last-acked inbox offset, or None if unread-none."""
+        cursor = self.get_cursor(key, consumer_id)
+        if cursor < 0:
+            return None
+        return self.read_at(key, cursor, log="inbox")
+
+    def last_sent_outbox(self, key: StreamKey) -> MessageRecord | None:
+        """Newest outbox row with status=sent and a Slack ``ts``, or None."""
+        last: MessageRecord | None = None
+        for rec in self.iter_from(key, 0, log="outbox"):
+            if rec.status == "sent" and rec.ts:
+                last = rec
+        return last
+
     def get_cursor(self, key: StreamKey, consumer_id: str) -> int:
         """Last acked offset; -1 means nothing acked yet."""
         path = self._cursor_path(key, consumer_id)

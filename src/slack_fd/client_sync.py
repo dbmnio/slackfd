@@ -194,3 +194,17 @@ class SlackStream:
     def history(self) -> list[tuple[LogName, MessageRecord]]:
         """Merged inbox+outbox in chat order (local logs; does not move cursors)."""
         return self._store().iter_chat(self.key)
+
+    def reply_key(self, side: Literal["inbox", "outbox"] = "inbox") -> str | None:
+        """Reply/follow stream key from last inbox read or last sent outbox.
+
+        Returns None if there is no suitable record (no cursor / no sent ts).
+        """
+        store = self._store()
+        if side == "outbox":
+            rec = store.last_sent_outbox(self.key)
+        else:
+            rec = store.record_at_inbox_cursor(self.key, self.consumer_id)
+        if rec is None:
+            return None
+        return rec.reply_stream_key()

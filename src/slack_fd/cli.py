@@ -290,6 +290,33 @@ def cmd_flush(args: argparse.Namespace) -> int:
     return 0 if not result.get("failed") else 1
 
 
+def cmd_key(args: argparse.Namespace) -> int:
+    """Print reply/follow stream key from last inbox read or last sent outbox."""
+    key = StreamKey.parse(args.key)
+    store = LogStore(_data_dir(args))
+    side = getattr(args, "side", "inbox")
+    if side == "outbox":
+        rec = store.last_sent_outbox(key)
+        if rec is None:
+            print(
+                "sfd: no sent outbox message with a Slack ts "
+                "(flush pending writes first)",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        rec = store.record_at_inbox_cursor(key, args.consumer)
+        if rec is None:
+            print(
+                "sfd: no inbox message at cursor "
+                "(read at least one message first)",
+                file=sys.stderr,
+            )
+            return 1
+    print(rec.reply_stream_key())
+    return 0
+
+
 def cmd_trim(args: argparse.Namespace) -> int:
     key = StreamKey.parse(args.key)
     inbox_keep = args.inbox_keep if args.inbox_keep is not None else args.keep
@@ -416,6 +443,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lg.set_defaults(func=cmd_log)
 
+    ky = sub.add_parser(
+        "key",
+        help="Print reply/follow stream key from last inbox read or last sent outbox",
+    )
+    ky.add_argument("key", help="Stream key (thread:… / dm:… / app:…)")
+    side = ky.add_mutually_exclusive_group()
+    side.add_argument(
+        "-i",
+        "--inbox",
+        dest="side",
+        action="store_const",
+        const="inbox",
+        help="From last-read inbox message (default)",
+    )
+    side.add_argument(
+        "-o",
+        "--outbox",
+        dest="side",
+        action="store_const",
+        const="outbox",
+        help="From last sent outbox message (requires Slack ts)",
+    )
+    ky.set_defaults(func=cmd_key, side="inbox")
+
     inj = sub.add_parser(
         "inject",
         help="Inject fake inbound message (testing / Phase 1; no Slack)",
@@ -495,6 +546,7 @@ _SUBCOMMANDS = frozenset(
         "read",
         "follow",
         "log",
+        "key",
         "inject",
         "fetch",
         "sync",
