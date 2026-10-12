@@ -36,6 +36,22 @@ from slack_fd.rpc import RpcError, recv_msg, send_msg
 log = logging.getLogger("slack_fd.daemon")
 
 
+def _unix_sock_accepts_connections(path: Path) -> bool:
+    """True if a live process is accepting on this Unix socket."""
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(0.5)
+        probe.connect(str(path))
+        return True
+    except OSError:
+        return False
+    finally:
+        try:
+            probe.close()
+        except OSError:
+            pass
+
+
 class DaemonServer:
     def __init__(self, data_dir: Path | None = None) -> None:
         self.data_dir = (data_dir or default_data_dir()).resolve()
@@ -134,11 +150,27 @@ class DaemonServer:
             self._listen_label = f"tcp://{host}:{bound_port} (token auth required)"
             return
 
-        if self.sock_path.exists():
-            self.sock_path.unlink()
         self.sock_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.sock_path.exists():
+            if _unix_sock_accepts_connections(self.sock_path):
+                raise SystemExit(
+                    f"another sfd daemon is already listening on {self.sock_path}; "
+                    "run `sfd daemon stop` (do not start a second process — "
+                    "Slack allows one Socket Mode connection per app)"
+                )
+            try:
+                self.sock_path.unlink()
+            except OSError:
+                pass
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.bind(str(self.sock_path))
+        try:
+            sock.bind(str(self.sock_path))
+        except OSError as e:
+            sock.close()
+            raise SystemExit(
+                f"cannot bind daemon socket {self.sock_path}: {e} "
+                "(is another daemon running?)"
+            ) from e
         os.chmod(self.sock_path, 0o600)
         sock.listen(64)
         self._sock = sock

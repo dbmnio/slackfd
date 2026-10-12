@@ -213,7 +213,7 @@ After applying a manifest: create the **app-level token** with `connections:writ
 | `invalid_auth` on send | Bad/revoked `xoxb-` token; reinstall app |
 | No inbound channel messages | Bot not invited; missing `message.channels` / `channels:history` |
 | No DMs / “Sending messages to this app has been turned off” | **App Home → Messages Tab** not enabled, or “Allow users to send … messages” unchecked; also check `message.im` / `im:*` |
-| Two connections fighting | Two daemons or daemon + embed both using Socket Mode — only one active connection per app |
+| Two connections fighting / BrokenPipe on Socket Mode | Two daemons (or daemon + embed) — Slack allows one connection per app. Use a single `sfd daemon start`; `sfd daemon status` warns if extra PIDs appear. Examples must not spawn their own daemon. |
 | Scopes “not working” | Forgot to **reinstall** after changing scopes/events |
 
 ---

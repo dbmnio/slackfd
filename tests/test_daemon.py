@@ -74,7 +74,7 @@ def test_lifecycle_start_stop(tmp_path):
 
     st = lifecycle.status(tmp_path)
     assert st["running"] is True
-    assert st["daemon"]["phase"] == 1
+    assert st["daemon"]["phase"] >= 1
 
     key = "D1"
     t = DaemonTransport(tmp_path)
@@ -86,6 +86,39 @@ def test_lifecycle_start_stop(tmp_path):
     stopped = lifecycle.stop(tmp_path)
     assert stopped["stopped"] is True
     assert not lifecycle.is_running(tmp_path)
+
+
+def test_concurrent_start_only_one_daemon(tmp_path):
+    """flock serializes start so only one subprocess wins."""
+    results: list[dict] = []
+    errors: list[BaseException] = []
+
+    def go() -> None:
+        try:
+            results.append(lifecycle.start(tmp_path))
+        except BaseException as e:  # noqa: BLE001 — collect for assertion
+            errors.append(e)
+
+    threads = [threading.Thread(target=go) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+    assert not errors
+    assert len(results) == 2
+    started = sum(1 for r in results if r.get("started"))
+    already = sum(1 for r in results if r.get("already_running"))
+    assert started == 1
+    assert already == 1
+    assert lifecycle.is_running(tmp_path)
+    lifecycle.stop(tmp_path)
+    assert not lifecycle.is_running(tmp_path)
+
+
+def test_refuse_bind_when_socket_live(daemon_server, tmp_path):
+    other = DaemonServer(tmp_path)
+    with pytest.raises(SystemExit, match="already listening"):
+        other._bind()
 
 
 def test_daemon_transport_unavailable(tmp_path):

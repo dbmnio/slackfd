@@ -30,6 +30,12 @@ def daemon_pid_path(data_dir: Path | None = None) -> Path:
     return root / "daemon.pid"
 
 
+def daemon_lock_path(data_dir: Path | None = None) -> Path:
+    """Exclusive flock path used to serialize ``daemon start``."""
+    root = data_dir or default_data_dir()
+    return root / "daemon.lock"
+
+
 def daemon_sockpath_file(data_dir: Path | None = None) -> Path:
     """File that records the actual Unix socket path in use."""
     root = data_dir or default_data_dir()

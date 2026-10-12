@@ -168,6 +168,7 @@ Socket Mode protocol work in Go is feasible later; v1 prioritizes official SDK +
 - **Default:** clients connect to the daemon.
 - **Fallback:** if the daemon is missing, the library may **auto-embed** a connection manager in-process and **emit a warning**.
 - Embed mode is for solo use only. Slack effectively allows one active Socket Mode connection per app; two embeds will conflict. Warning text should direct users to `sfd daemon start` for shared use.
+- **Single daemon only.** Concurrent `daemon start` used to race (TOCTOU + unlinking a live Unix socket), spawning multiple `python -m slack_fd.daemon` processes and breaking Socket Mode. `start` is now serialized with `daemon.lock` (flock); a second process refuses to bind if the socket already accepts connections. `sfd daemon status` warns if extra daemon PIDs are detected. Examples (e.g. Slack↔Cursor bridge) must use `transport=daemon` and **never** start their own daemon.
 
 ### AD-4 — Persistence: append-only JSONL + cursors (kafka-lite)
 

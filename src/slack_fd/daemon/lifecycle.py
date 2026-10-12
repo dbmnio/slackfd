@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import signal
 import subprocess
@@ -12,6 +13,7 @@ from pathlib import Path
 from slack_fd.errors import DaemonUnavailable
 from slack_fd.ipc import daemon_tcp_path, ipc_mode, read_tcp_endpoint
 from slack_fd.paths import (
+    daemon_lock_path,
     daemon_pid_path,
     daemon_sock_path,
     daemon_sockpath_file,
@@ -48,6 +50,7 @@ def status(data_dir: Path | None = None) -> dict:
         endpoint_s = str(sock)
         endpoint_ok = sock.exists()
 
+    extra_pids = _other_daemon_pids(exclude=pid if alive else None)
     info: dict = {
         "running": False,
         "pid": pid,
@@ -57,6 +60,13 @@ def status(data_dir: Path | None = None) -> dict:
         "pid_alive": alive,
         "socket_exists": endpoint_ok,
     }
+    if extra_pids:
+        info["warning"] = (
+            "multiple slack_fd.daemon processes detected "
+            f"(pids {extra_pids}); stop extras — Slack allows one Socket Mode "
+            "connection. See ARCHITECTURE.md (single daemon)."
+        )
+        info["extra_pids"] = extra_pids
     if alive and endpoint_ok:
         try:
             t = DaemonTransport(root)
@@ -70,45 +80,83 @@ def status(data_dir: Path | None = None) -> dict:
 
 
 def start(data_dir: Path | None = None, *, timeout: float = 5.0) -> dict:
+    """Start the daemon. Serialized with an exclusive lock to prevent races.
+
+    Concurrent ``sfd daemon start`` (e.g. from scripts + examples) used to
+    spawn multiple processes that stole the Unix socket from each other.
+    """
     root = resolve_data_dir(data_dir)
     root.mkdir(parents=True, exist_ok=True)
     os.chmod(root, 0o700)
 
-    if is_running(root):
-        return {"started": False, "already_running": True, **status(root)}
+    lock_path = daemon_lock_path(root)
+    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
 
-    _cleanup_stale(root)
-
-    log_path = root / "daemon.log"
-    env = os.environ.copy()
-    env["SFD_DATA_DIR"] = str(root)
-
-    with log_path.open("a", encoding="utf-8") as logf:
-        subprocess.Popen(
-            [sys.executable, "-m", "slack_fd.daemon"],
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=logf,
-            stderr=logf,
-            start_new_session=True,
-        )
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
         if is_running(root):
-            return {"started": True, "already_running": False, **status(root)}
-        time.sleep(0.05)
+            return {"started": False, "already_running": True, **status(root)}
 
-    raise DaemonUnavailable(
-        f"daemon failed to start within {timeout}s; see {log_path}"
-    )
+        _cleanup_stale(root)
+
+        log_path = root / "daemon.log"
+        env = os.environ.copy()
+        env["SFD_DATA_DIR"] = str(root)
+
+        with log_path.open("a", encoding="utf-8") as logf:
+            subprocess.Popen(
+                [sys.executable, "-m", "slack_fd.daemon"],
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=logf,
+                stderr=logf,
+                start_new_session=True,
+            )
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if is_running(root):
+                return {"started": True, "already_running": False, **status(root)}
+            time.sleep(0.05)
+
+        raise DaemonUnavailable(
+            f"daemon failed to start within {timeout}s; see {log_path}"
+        )
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(lock_fd)
 
 
 def stop(data_dir: Path | None = None, *, timeout: float = 5.0) -> dict:
     root = resolve_data_dir(data_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = daemon_lock_path(root)
+    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        return _stop_locked(root, timeout=timeout)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(lock_fd)
+
+
+def _stop_locked(root: Path, *, timeout: float) -> dict:
     pid = _read_pid(root)
     if pid is None or not _pid_alive(pid):
         _cleanup_stale(root)
+        # Reap orphan ``python -m slack_fd.daemon`` processes (best-effort).
+        orphans = _other_daemon_pids(exclude=None)
+        for opid in orphans:
+            try:
+                os.kill(opid, signal.SIGTERM)
+            except OSError:
+                pass
         return {"stopped": False, "was_running": False, "data_dir": str(root)}
 
     os.kill(pid, signal.SIGTERM)
@@ -146,6 +194,31 @@ def _pid_alive(pid: int) -> bool:
         return True
     except OSError:
         return False
+
+
+def _other_daemon_pids(*, exclude: int | None) -> list[int]:
+    """Best-effort list of other ``python -m slack_fd.daemon`` PIDs (Unix)."""
+    try:
+        out = subprocess.check_output(
+            ["pgrep", "-f", r"python.*-m slack_fd\.daemon"],
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return []
+    pids: list[int] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            pid = int(line)
+        except ValueError:
+            continue
+        if exclude is not None and pid == exclude:
+            continue
+        if _pid_alive(pid):
+            pids.append(pid)
+    return pids
 
 
 def _cleanup_stale(data_dir: Path) -> None:

@@ -2,16 +2,18 @@
 """PoC: Slack DM ↔ Cursor Agent (headless --print), via slack_fd.
 
 Prereqs:
-  - SLACK_BOT_TOKEN / SLACK_APP_TOKEN set; ``sfd daemon start``
+  - SLACK_BOT_TOKEN / SLACK_APP_TOKEN set
+  - **Exactly one** ``sfd daemon start`` already running (this script does
+    *not* start a daemon; ``transport=daemon`` only). A second daemon or
+    embed Socket Mode will fight Slack's single connection.
   - Cursor Agent at ~/.local/bin/agent (not the Grok ``agent`` on PATH)
   - Logged in: ``~/.local/bin/agent login`` / status
   - Python >= 3.11 (shebang uses 3.12)
 
 Example:
+  sfd daemon start   # once, in a shell with Slack tokens
   export SFD_STREAM='D01234567'   # Slack IM channel id
-  # from repo root, with deps available:
   .venv/bin/python examples/slack_cursor_bridge.py --workspace "$PWD"
-  # or: python3.12 examples/slack_cursor_bridge.py --workspace "$PWD"
 
 Stop with Ctrl-C.
 """

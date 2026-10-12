@@ -353,18 +353,27 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 
 
 def _fmt_daemon(info: dict) -> str:
+    warn = info.get("warning")
+    suffix = f"\nWARNING: {warn}" if warn else ""
     if "started" in info:
         if info.get("already_running"):
-            return f"daemon already running pid={info.get('pid')} sock={info.get('socket')}"
-        return f"daemon started pid={info.get('pid')} sock={info.get('socket')}"
+            return (
+                f"daemon already running pid={info.get('pid')} sock={info.get('socket')}"
+                f"{suffix}"
+            )
+        return f"daemon started pid={info.get('pid')} sock={info.get('socket')}{suffix}"
     if "stopped" in info:
         if not info.get("was_running"):
-            return "daemon was not running"
-        return f"daemon stopped pid={info.get('pid')}"
+            return f"daemon was not running{suffix}"
+        return f"daemon stopped pid={info.get('pid')}{suffix}"
     running = info.get("running")
+    d = info.get("daemon") or {}
+    slack = d.get("slack")
+    slack_s = f" slack={slack}" if slack is not None else ""
     return (
-        f"running={running} pid={info.get('pid')} "
+        f"running={running} pid={info.get('pid')}{slack_s} "
         f"sock={info.get('socket')} data_dir={info.get('data_dir')}"
+        f"{suffix}"
     )
 
 

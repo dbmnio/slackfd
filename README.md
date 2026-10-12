@@ -107,8 +107,8 @@ Optional: `SFD_DATA_DIR` (default `~/.local/share/sfd`).
 ## Quick start
 
 ```bash
-sfd daemon start
-sfd daemon status          # slack: true when tokens are set
+sfd daemon start           # exactly one; do not start from multiple shells/tools
+sfd daemon status          # slack: true when tokens are set; warns if extra daemons
 
 # DM the bot in Slack, then use the IM channel id (D…):
 sfd 'D_YOUR_IM_CHANNEL' --timeout 10          # read (auto-fetch at tip)
