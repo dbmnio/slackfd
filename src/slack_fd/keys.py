@@ -41,6 +41,20 @@ class StreamKey:
         return self.format().replace(":", "__").replace(".", "_")
 
     @classmethod
+    def from_dirname(cls, name: str) -> StreamKey:
+        """Inverse of ``encoded_dirname`` (Slack-native keys only)."""
+        name = name.strip()
+        if not name:
+            raise InvalidKey("empty stream dirname")
+        if "__" in name:
+            channel, ts_enc = name.split("__", 1)
+            if "_" not in ts_enc:
+                raise InvalidKey(f"invalid stream dirname {name!r}")
+            left, right = ts_enc.split("_", 1)
+            return cls.thread(channel, f"{left}.{right}")
+        return cls.channel(name)
+
+    @classmethod
     def parse(cls, value: str) -> StreamKey:
         value = value.strip()
         if not value:

@@ -519,10 +519,13 @@ Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history be
 
 ## Open questions (deferred, not blocking)
 
+See [ROADMAP.md](ROADMAP.md) for the living backlog. Highlights:
+
 1. Message subtype filtering (bot_message, message_changed, deletes)? (**v1: store text messages; skip noisy subtypes or store with flags**)
 2. Distribution: pip-only vs eventual Go rewrite for single binary.
-3. Name → channel_id resolve helpers (`sfd ls` / `resolve`).
-4. Listen/accept for thread discovery under a channel supervisor.
+3. ~~Name → channel_id resolve helpers (`sfd ls` / `resolve`).~~ ✅
+4. Listen/accept for thread discovery under a channel supervisor (v2; park until a real product needs it).
+5. Live listener leases / `sfd listeners` (required before “nobody’s listening” warnings).
 
 ---
 

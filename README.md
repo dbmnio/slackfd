@@ -119,6 +119,12 @@ sfd log --chat 'D_YOUR_IM_CHANNEL'
 sfd key 'D_YOUR_IM_CHANNEL'           # e.g. D…:ts to start/follow a thread
 sfd key -o 'D_YOUR_IM_CHANNEL'        # requires a flushed send with Slack ts
 
+# Discover stream ids (names are sugar; keys stay Slack ids)
+sfd resolve '@alice'                  # → D… (opens IM)
+sfd resolve '#general'                # → C…
+sfd ls                                # local streams under the data dir
+sfd ls --remote                       # conversations visible to the bot
+
 # Advanced: manage gaps yourself
 sfd fetch 'D_YOUR_IM_CHANNEL'
 sfd flush 'D_YOUR_IM_CHANNEL'
@@ -175,4 +181,5 @@ with SlackStream("D01234567", autofetch=False, autoflush=False) as s:
 ## Status
 
 Phases 0–4 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, TCP IPC, simple-API auto gap-close).  
-Stream keys are Slack-native `<channel_id>[:thread_ts]`.
+Stream keys are Slack-native `<channel_id>[:thread_ts]`.  
+Deferred work: [ROADMAP.md](ROADMAP.md).

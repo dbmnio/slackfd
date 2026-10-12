@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 from typing import Iterator, Literal
 
+from slack_fd.errors import InvalidKey
 from slack_fd.keys import StreamKey
 from slack_fd.paths import streams_dir
 from slack_fd.records import MessageRecord, OutboxStatus
@@ -32,6 +33,20 @@ class LogStore:
                 encoding="utf-8",
             )
         return path
+
+    def list_streams(self) -> list[StreamKey]:
+        """Local stream keys under the data dir (skips unreadable / legacy dirs)."""
+        if not self._root.exists():
+            return []
+        keys: list[StreamKey] = []
+        for path in sorted(self._root.iterdir()):
+            if not path.is_dir():
+                continue
+            try:
+                keys.append(StreamKey.from_dirname(path.name))
+            except InvalidKey:
+                continue
+        return keys
 
     def _log_path(self, key: StreamKey, name: LogName) -> Path:
         return self.stream_dir(key) / f"{name}.jsonl"
@@ -104,6 +119,9 @@ class LogStore:
 
     def inbox_len(self, key: StreamKey) -> int:
         return self._line_count(self._log_path(key, "inbox"))
+
+    def outbox_len(self, key: StreamKey) -> int:
+        return self._line_count(self._log_path(key, "outbox"))
 
     def record_at_inbox_cursor(
         self,

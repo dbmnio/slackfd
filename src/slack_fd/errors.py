@@ -19,3 +19,15 @@ class Timeout(SlackFdError):
 
 class SendFailed(SlackFdError):
     """Outbound message failed to send."""
+
+
+class ResolveError(SlackFdError):
+    """Name could not be resolved to a Slack channel id."""
+
+
+class AmbiguousResolve(ResolveError):
+    """Multiple Slack objects matched the query."""
+
+    def __init__(self, message: str, *, candidates: list[str]) -> None:
+        super().__init__(message)
+        self.candidates = candidates

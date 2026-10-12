@@ -11,10 +11,17 @@ from typing import Any
 
 from slack_fd.client_sync import SlackStream
 from slack_fd.daemon import lifecycle
-from slack_fd.errors import DaemonUnavailable, InvalidKey, SlackFdError
+from slack_fd.errors import (
+    AmbiguousResolve,
+    DaemonUnavailable,
+    InvalidKey,
+    ResolveError,
+    SlackFdError,
+)
 from slack_fd.keys import StreamKey
 from slack_fd.logstore import LogStore
 from slack_fd.paths import default_data_dir
+from slack_fd.resolve import list_local_streams, list_remote_conversations, resolve_name
 from slack_fd.transport.daemon import DaemonTransport
 from slack_fd.transport.fake import FakeTransport
 
@@ -317,6 +324,55 @@ def cmd_key(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_resolve(args: argparse.Namespace) -> int:
+    """Map @user / #channel / U… to a stream channel id (stdout: one key)."""
+    try:
+        resolved = resolve_name(args.query, data_dir=_data_dir(args))
+    except AmbiguousResolve as e:
+        print(f"sfd: {e}", file=sys.stderr)
+        for c in e.candidates:
+            print(c, file=sys.stderr)
+        return 2
+    except ResolveError as e:
+        print(f"sfd: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(resolved.to_dict(), ensure_ascii=False))
+    else:
+        print(resolved.key)
+    return 0
+
+
+def cmd_ls(args: argparse.Namespace) -> int:
+    """List local stream keys, or Slack conversations with --remote."""
+    data = _data_dir(args)
+    if args.remote:
+        try:
+            rows = list_remote_conversations(data_dir=data)
+        except ResolveError as e:
+            print(f"sfd: {e}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps([r.to_dict() for r in rows], indent=2, ensure_ascii=False))
+            return 0
+        for r in rows:
+            label = r.name or ""
+            if r.kind == "im" and label:
+                label = f"@{label}"
+            elif r.kind in {"channel", "private_channel"} and label:
+                label = f"#{label}"
+            print(f"{r.key}\t{r.kind}\t{label}".rstrip())
+        return 0
+
+    rows = list_local_streams(data)
+    if args.json:
+        print(json.dumps([r.to_dict() for r in rows], indent=2, ensure_ascii=False))
+        return 0
+    for r in rows:
+        print(f"{r.key}\t{r.kind}\tinbox={r.inbox}\toutbox={r.outbox}")
+    return 0
+
+
 def cmd_trim(args: argparse.Namespace) -> int:
     key = StreamKey.parse(args.key)
     inbox_keep = args.inbox_keep if args.inbox_keep is not None else args.keep
@@ -476,6 +532,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ky.set_defaults(func=cmd_key, side="inbox")
 
+    rs = sub.add_parser(
+        "resolve",
+        help="Map @user / #channel / U… to a stream channel id (D…/C…/G…)",
+    )
+    rs.add_argument("query", help="@name, #channel, U…, or C|D|G… (passthrough)")
+    rs.set_defaults(func=cmd_resolve)
+
+    ls = sub.add_parser(
+        "ls",
+        help="List local streams (default) or Slack conversations (--remote)",
+    )
+    ls.add_argument(
+        "--remote",
+        action="store_true",
+        help="List conversations from Slack (needs SLACK_BOT_TOKEN)",
+    )
+    ls.set_defaults(func=cmd_ls)
+
     inj = sub.add_parser(
         "inject",
         help="Inject fake inbound message (testing / Phase 1; no Slack)",
@@ -556,6 +630,8 @@ _SUBCOMMANDS = frozenset(
         "follow",
         "log",
         "key",
+        "resolve",
+        "ls",
         "inject",
         "fetch",
         "sync",
@@ -615,6 +691,14 @@ def main(argv: list[str] | None = None) -> None:
         print(f"sfd: {e}", file=sys.stderr)
         raise SystemExit(2) from e
     except DaemonUnavailable as e:
+        print(f"sfd: {e}", file=sys.stderr)
+        raise SystemExit(1) from e
+    except AmbiguousResolve as e:
+        print(f"sfd: {e}", file=sys.stderr)
+        for c in e.candidates:
+            print(c, file=sys.stderr)
+        raise SystemExit(2) from e
+    except ResolveError as e:
         print(f"sfd: {e}", file=sys.stderr)
         raise SystemExit(1) from e
     except SlackFdError as e:
