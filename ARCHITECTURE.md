@@ -503,17 +503,18 @@ Never commit tokens. Prefer env vars in production/agent settings.
 
 ### Phase 4 — Simple API semantics ✅
 
-Wire the cursor/gap model into default `read` / `write` behavior:
+Original gap API (`autofetch` / client `flush`) shipped; **websocket-daemon direction** now:
 
-| Order | Task | Notes |
-|------:|------|-------|
-| 1 | ✅ Auto-`fetch` on `read` when at inbox tip | Soft-fail if Slack unavailable; does not rewrite prefix |
-| 2 | ✅ Auto-`flush` on `write` until outbox gap closed | `write` appends pending; flush heals then sends |
-| 3 | ✅ Opt-out flags / advanced mode | `autofetch=` / `autoflush=`; CLI `--no-fetch` / `--no-flush` |
-| 4 | ✅ Seek/read documented as inbound-only | `log --chat` for full transcript |
-| 5 | (Optional) internal `InboundSource` port | Websocket now; poll later if needed |
+| Behavior | Owner |
+|----------|--------|
+| Live inbox | Daemon Socket Mode demux (`ts` deduped) |
+| Heal after connect | Daemon `reconcile_after_connect` (history + drain) |
+| Send | Daemon flush-on-`write` (no history repair on hot path) |
+| Client `read` / `write` | Consume / enqueue only — no happy-path `fetch`/`flush` |
 
-Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history behind the local cursor, moving read cursors automatically during `fetch`.
+`sfd fetch` / `sfd flush` remain as **admin/legacy** RPCs (and for a future pull backend). They are not the FD surface for Socket Mode.
+
+Non-goals: continuous bidirectional mirror; rewriting inbox behind the cursor; client-driven heal on every tip read.
 
 ---
 
@@ -534,8 +535,8 @@ See [ROADMAP.md](ROADMAP.md) for the living backlog. Highlights:
 | Decision | Choice |
 |----------|--------|
 | Language | Python + official Bolt |
-| Inbound | Socket Mode (+ history heal via `fetch`) |
-| Outbound | Web API (`flush`) |
+| Inbound | Socket Mode demux; daemon heal on connect |
+| Outbound | Web API send on daemon `write` (durable outbox) |
 | Process | Daemon default; embed + warning fallback |
 | Storage | Per-stream JSONL + cursors |
 | Truth model | Slack authoritative in the gaps; local prefix assumed stable; heal on reconnect |
@@ -543,4 +544,4 @@ See [ROADMAP.md](ROADMAP.md) for the living backlog. Highlights:
 | Keys | `<channel_id>` or `<channel_id>:<thread_ts>` |
 | Library | Thin stream API (sync + async); simple auto gap-close |
 | CLI | Sync only; explicit read/write + pipe sugar; `fetch`/`flush` advanced |
-| Not doing | Full Slack SDK layer; primary explicit-ack API; poll backend (yet) |
+| Not doing | Full Slack SDK layer; client fetch/flush as happy path; poll backend (yet) |

@@ -49,7 +49,7 @@ def flush_stream(
     client: FetchWebApi | None = None,
     store: LogStore | None = None,
     retry_failed: bool = True,
-    repair_first: bool = True,
+    repair_first: bool = False,
     limit: int = 200,
 ) -> FlushResult:
     stream = StreamKey.parse(key) if isinstance(key, str) else key

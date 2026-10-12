@@ -1,37 +1,46 @@
 # Roadmap
 
-Phases 0–4 are done (daemon, Socket Mode, fetch/flush, simple API, Slack-native keys).
-This file tracks **deliberately deferred** work from the project’s north star:
+Phases 0–4 delivered the working system. Direction for the **websocket daemon**
+backend (current default):
 
 > One Slack app; one daemon; streams keyed by Slack channel (and optional thread);
-> tools `follow` / `read` / `write` only the scopes they own; names are for
-> `ls` / `resolve`, not identity.
+> tools `read` / `write` / `follow` only — daemon owns live demux, reconnect heal,
+> and outbox send. `fetch` / `flush` are not the happy path for Socket Mode.
 
 ## Done (recent)
 
 - [x] Slack-native keys: `C…` / `D…` / `G…` or `C…:thread_ts`
 - [x] `sfd key -i|-o` for reply/follow keys
 - [x] Single-daemon hardening (`daemon.lock`, refuse live-socket steal)
-- [x] `sfd ls` (local) / `sfd ls --remote` / `sfd resolve`
+- [x] `sfd ls` / `sfd resolve`
+- [x] Inbox dedupe by Slack `ts` (demux ↔ fetch races)
+- [x] WS path: no autofetch on `read`; daemon flush-on-write; heal on Socket Mode connect
 
-## Next (when needed)
+## Websocket backend focus
 
-| Priority | Item | Notes |
-|----------|------|--------|
-| Ops polish | Live **leases** + `sfd listeners` | Track open `read`/`follow` waiters; cursors alone ≠ “listening”. Needed before “nobody’s listening” warnings in Slack. |
-| Ops polish | Embed vs daemon Socket Mode | Fail hard if embed would steal the uplink while a daemon is up. |
-| Product (v2) | **Listen / accept** | Channel supervisor → thread “connection” FDs. Add when there is a concrete @mention / multi-thread router — not before. |
-| Policy | Message subtypes | Edits, deletes, `bot_message`, etc. Today: plain text; skip noisy subtypes. |
-| Optional | Poll / `InboundSource` | Websocket is enough; history heal via `fetch`. Formal port only if a second backend appears. |
+| Item | Notes |
+|------|--------|
+| Reconnect hooks | Heal again when Bolt/Socket Mode resumes after drop (today: heal on initial connect) |
+| Flush reliability | Surface send failures; retry stuck `pending`/`failed` without client flush |
+| Embed vs daemon | Fail hard if embed would steal Socket Mode while a daemon is up |
+| Live **leases** / `sfd listeners` | Optional; needed before “nobody’s listening” warnings |
+
+## Deferred (other backends / product)
+
+| Item | Notes |
+|------|--------|
+| **Pull backend** + first-class `fetch`/`flush` | Makes sense when uplink *is* HTTP poll; not the Socket Mode FD surface |
+| **Listen / accept** | Channel supervisor → thread FDs when a real @mention router needs it |
+| Message subtypes | Edits, deletes, `bot_message`, … |
+| Distribution | pip-only vs single binary later |
 
 ## Explicitly not planned soon
 
-- Transparent ids on every `write` / `--print-key` — use `sfd key` instead
-- Perfect POSIX FD isomorphism / `socat`-compatible byte streams
-- Multi-language SDKs (other languages can spawn `sfd` or speak RPC later)
-- SQLite indexing, protobuf IPC, Windows named pipes
-- Full Slack surface (modals, oauth, files) — use Bolt beside `sfd` if needed
-- One Slack app **per tool** — isolation is **which stream you open**
+- Transparent ids on every `write` / `--print-key` — use `sfd key`
+- Perfect POSIX FD isomorphism
+- Multi-language SDKs
+- SQLite / protobuf IPC / Windows named pipes
+- Full Slack SDK surface — use Bolt beside `sfd` if needed
 
 ## Contract for tools
 

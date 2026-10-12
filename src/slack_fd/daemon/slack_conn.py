@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Any
 
 from slack_fd.config import Config
@@ -97,6 +98,18 @@ class SlackBridge:
         self._handler = handler
         self._started = True
         log.info("socket mode connected")
+        # Heal gaps + drain outbox without clients calling fetch/flush.
+        threading.Thread(
+            target=self._reconcile_bg,
+            name="sfd-slack-reconcile",
+            daemon=True,
+        ).start()
+
+    def _reconcile_bg(self) -> None:
+        try:
+            self.service.reconcile_after_connect()
+        except Exception:
+            log.exception("post-connect reconcile failed")
 
     def stop(self) -> None:
         if self._handler is not None:

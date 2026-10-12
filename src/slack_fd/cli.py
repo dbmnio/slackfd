@@ -72,6 +72,8 @@ def cmd_write(args: argparse.Namespace) -> int:
             transport=transport,
             consumer_id=args.consumer,
             data_dir=_data_dir(args),
+            # Daemon sends when Slack is up; --no-flush only skips client-side
+            # flush (relevant for fake/embed or forcing queue-only).
             autoflush=not getattr(args, "no_flush", False),
         ) as s:
             rec = s.write(text, user_id=args.user)
@@ -97,7 +99,7 @@ def cmd_read(args: argparse.Namespace) -> int:
             transport=transport,
             consumer_id=args.consumer,
             data_dir=_data_dir(args),
-            autofetch=not getattr(args, "no_fetch", False),
+            autofetch=getattr(args, "fetch", False),
         ) as s:
             if args.from_offset is not None:
                 rec = s.read_at(args.from_offset)
@@ -126,7 +128,7 @@ def cmd_follow(args: argparse.Namespace) -> int:
             transport=transport,
             consumer_id=args.consumer,
             data_dir=_data_dir(args),
-            autofetch=not getattr(args, "no_fetch", False),
+            autofetch=getattr(args, "fetch", False),
         ) as s:
             try:
                 for rec in s.follow(ack=not args.no_ack):
@@ -254,12 +256,13 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
 
 def cmd_flush(args: argparse.Namespace) -> int:
-    """Send pending/failed outbox to Slack (repair-from-history first by default)."""
+    """Force drain pending outbox (admin); daemon normally sends on write."""
     from slack_fd.flush import flush_stream
 
     key = StreamKey.parse(args.key)
     data = _data_dir(args) or default_data_dir()
     result: dict
+    repair = bool(getattr(args, "repair", False))
 
     try:
         transport = DaemonTransport(data)
@@ -268,7 +271,7 @@ def cmd_flush(args: argparse.Namespace) -> int:
             result = transport.flush(
                 key,
                 retry_failed=not args.no_retry_failed,
-                repair_first=not args.no_repair,
+                repair_first=repair,
                 limit=args.limit,
             )
         finally:
@@ -278,7 +281,7 @@ def cmd_flush(args: argparse.Namespace) -> int:
             key,
             data_dir=data,
             retry_failed=not args.no_retry_failed,
-            repair_first=not args.no_repair,
+            repair_first=repair,
             limit=args.limit,
         ).to_dict()
 
@@ -451,7 +454,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    w = sub.add_parser("write", help="Append to outbox; flush to Slack (unless --no-flush)")
+    w = sub.add_parser(
+        "write",
+        help="Enqueue outbound message (daemon sends when Slack is connected)",
+    )
     w.add_argument("key", help="Stream key (C…/D…/G… or C…:thread_ts)")
     w.add_argument("message", nargs="?", help="Message text (default: stdin)")
     w.add_argument("--user", help="User id when required for app/dm writes")
@@ -459,13 +465,13 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument(
         "--no-flush",
         action="store_true",
-        help="Advanced: leave message pending; call `sfd flush` yourself",
+        help="Skip client-side flush helper (daemon still sends on write when up)",
     )
     w.set_defaults(func=cmd_write)
 
     r = sub.add_parser(
         "read",
-        help="Read next inbox message (fetches at tip unless --no-fetch)",
+        help="Read next inbox message (local cursor; daemon demux fills inbox)",
     )
     r.add_argument("key")
     r.add_argument("--timeout", type=float, default=None, help="Seconds; default: block")
@@ -477,9 +483,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="With --from, advance cursor to that offset",
     )
     r.add_argument(
-        "--no-fetch",
+        "--fetch",
         action="store_true",
-        help="Advanced: do not fetch from Slack when at inbox tip",
+        help="Admin: force history heal before read (not needed for Socket Mode)",
     )
     r.set_defaults(func=cmd_read)
 
@@ -487,9 +493,9 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("key")
     f.add_argument("--no-ack", action="store_true")
     f.add_argument(
-        "--no-fetch",
+        "--fetch",
         action="store_true",
-        help="Advanced: do not fetch from Slack when at inbox tip",
+        help="Admin: force history heal when at tip (not needed for Socket Mode)",
     )
     f.set_defaults(func=cmd_follow)
 
@@ -561,7 +567,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     fe = sub.add_parser(
         "fetch",
-        help="Slack → local: catch up inbox; repair outbox already in Slack (no send)",
+        help="Admin/legacy: force Slack history heal (daemon also heals on connect)",
     )
     fe.add_argument("key")
     fe.add_argument(
@@ -583,19 +589,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     fl = sub.add_parser(
         "flush",
-        help="Local → Slack: send pending/failed outbox (repairs from history first)",
+        help="Admin/legacy: force drain pending outbox (daemon sends on write)",
     )
     fl.add_argument("key")
     fl.add_argument(
         "--limit",
         type=int,
         default=200,
-        help="History window for pre-flush repair (default 200)",
+        help="Max history window if --repair is set (default 200)",
     )
     fl.add_argument(
-        "--no-repair",
+        "--repair",
         action="store_true",
-        help="Do not match existing Slack bot messages before sending (risk of dupes)",
+        help="Match existing Slack bot messages before sending (legacy heal)",
     )
     fl.add_argument(
         "--no-retry-failed",

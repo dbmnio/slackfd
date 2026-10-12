@@ -130,6 +130,11 @@ def fetch_stream(
             tts = msg.get("thread_ts")
             if tts and str(tts) != str(msg.get("ts")):
                 continue
+        # Re-check on disk: a live demux may have appended this ts since we
+        # snapped existing_inbox_ts at the start of fetch.
+        if store.inbox_has_ts(stream, ts):
+            existing_inbox_ts.add(ts)
+            continue
         rec = MessageRecord(
             offset=-1,
             direction="in",

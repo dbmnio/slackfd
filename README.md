@@ -7,15 +7,14 @@ File-descriptor-like streams over Slack conversations: open a stream by key, `re
 
 ## Model (short)
 
-Inbox and outbox are not mirrors of the same op — they close gaps in opposite directions:
+For the **Socket Mode daemon** (default), clients consume and enqueue; the daemon owns live ingress and send:
 
-| Side | Gap | Close gap | Consume / produce |
-|------|-----|-----------|-------------------|
-| **Inbox** | remote ahead of local | `fetch` (Slack → local) | `read` advances local inbox cursor |
-| **Outbox** | local ahead of remote | `flush` (local → Slack) | `write` advances local outbox cursor |
+| Side | Client | Daemon |
+|------|--------|--------|
+| **Inbox** | `read` / `follow` (local cursor) | Websocket demux → inbox; heal on connect |
+| **Outbox** | `write` (durable enqueue) | Send on write when Slack is up |
 
-**Simple API (default):** `read` fetches when at the tip of known inbox, then advances the local cursor; `write` enqueues then flushes until sent.  
-**Advanced:** `--no-fetch` / `--no-flush`, or `autofetch=False` / `autoflush=False`, and call `fetch` / `flush` yourself. (`sync` is a deprecated alias for `fetch`.)
+`sfd fetch` / `sfd flush` are **admin/legacy** (and for a future pull backend), not the happy path.
 
 ## Install
 
@@ -111,25 +110,19 @@ sfd daemon start           # exactly one; do not start from multiple shells/tool
 sfd daemon status          # slack: true when tokens are set; warns if extra daemons
 
 # DM the bot in Slack, then use the IM channel id (D…):
-sfd 'D_YOUR_IM_CHANNEL' --timeout 10          # read (auto-fetch at tip)
-echo 'hello from sfd' | sfd 'D_YOUR_IM_CHANNEL'  # write (auto-flush)
+sfd 'D_YOUR_IM_CHANNEL' --timeout 10          # read local inbox (daemon demux)
+echo 'hello from sfd' | sfd 'D_YOUR_IM_CHANNEL'  # write; daemon sends
 sfd log --chat 'D_YOUR_IM_CHANNEL'
 
 # Reply/follow key from last inbox read (-i, default) or last sent outbox (-o)
 sfd key 'D_YOUR_IM_CHANNEL'           # e.g. D…:ts to start/follow a thread
-sfd key -o 'D_YOUR_IM_CHANNEL'        # requires a flushed send with Slack ts
+sfd key -o 'D_YOUR_IM_CHANNEL'        # requires a sent outbox row with Slack ts
 
 # Discover stream ids (names are sugar; keys stay Slack ids)
 sfd resolve '@alice'                  # → D… (opens IM)
 sfd resolve '#general'                # → C…
 sfd ls                                # local streams under the data dir
 sfd ls --remote                       # conversations visible to the bot
-
-# Advanced: manage gaps yourself
-sfd fetch 'D_YOUR_IM_CHANNEL'
-sfd flush 'D_YOUR_IM_CHANNEL'
-sfd read --no-fetch 'D_YOUR_IM_CHANNEL' --timeout 10
-echo 'queued' | sfd write --no-flush 'D_YOUR_IM_CHANNEL'
 
 sfd daemon stop
 ```
@@ -159,16 +152,9 @@ Do **not** bind to `0.0.0.0` — the daemon refuses non-loopback hosts.
 from slack_fd import SlackStream, StreamKey
 
 with SlackStream("D01234567") as s:
-    msg = s.read(timeout=30)       # fetch if at tip; advance local inbox cursor
+    msg = s.read(timeout=30)       # local inbox; daemon fills via Socket Mode
     if msg:
-        s.write(f"echo: {msg.text}")  # outbox + flush
-
-# Advanced gap management
-with SlackStream("D01234567", autofetch=False, autoflush=False) as s:
-    s.fetch()
-    msg = s.read(timeout=0)
-    s.write("queued")
-    s.flush()
+        s.write(f"echo: {msg.text}")  # durable outbox; daemon sends
 ```
 
 ## Stream keys
@@ -180,6 +166,6 @@ with SlackStream("D01234567", autofetch=False, autoflush=False) as s:
 
 ## Status
 
-Phases 0–4 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, TCP IPC, simple-API auto gap-close).  
+Phases 0–4 complete; websocket path: daemon demux + heal-on-connect + send-on-write.  
 Stream keys are Slack-native `<channel_id>[:thread_ts]`.  
 Deferred work: [ROADMAP.md](ROADMAP.md).

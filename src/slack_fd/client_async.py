@@ -23,7 +23,7 @@ class AsyncSlackStream:
         transport: TransportName | Transport = "auto",
         data_dir: Path | None = None,
         raise_on_timeout: bool = False,
-        autofetch: bool = True,
+        autofetch: bool = False,
         autoflush: bool = True,
     ) -> None:
         self._sync = SlackStream(

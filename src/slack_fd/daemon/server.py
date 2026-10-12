@@ -317,7 +317,8 @@ class DaemonServer:
             return self.service.flush_stream(
                 key,
                 retry_failed=bool(params.get("retry_failed", True)),
-                repair_first=bool(params.get("repair_first", True)),
+                # Default off for WS backend; clients may still pass true.
+                repair_first=bool(params.get("repair_first", False)),
                 limit=int(params.get("limit", 200)),
             )
 

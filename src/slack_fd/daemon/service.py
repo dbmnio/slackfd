@@ -67,7 +67,7 @@ class DaemonService:
         *,
         user_id: str | None = None,
     ) -> MessageRecord:
-        """Append a pending outbox row. Remote send is ``flush_stream`` / autoflush."""
+        """Enqueue outbox; when Slack is up, drain this stream (no client flush)."""
         rec = MessageRecord(
             offset=-1,
             direction="out",
@@ -79,7 +79,19 @@ class DaemonService:
             status="pending",
             client_msg_id=str(uuid.uuid4()),
         )
-        return self.store.append(key, rec, log="outbox")
+        written = self.store.append(key, rec, log="outbox")
+        if self.slack and self.slack.connected:
+            try:
+                # repair_first=False: avoid history HTTP on every send (rate limits).
+                self.flush_stream(
+                    key, retry_failed=True, repair_first=False, limit=200
+                )
+            except Exception:
+                log.exception("daemon flush after write failed for %s", key)
+            updated = self.store.read_at(key, written.offset, log="outbox")
+            if updated is not None:
+                return updated
+        return written
 
     def ack(self, key: StreamKey, consumer_id: str, offset: int) -> None:
         self.store.ack(key, consumer_id, offset)
@@ -102,7 +114,9 @@ class DaemonService:
             thread_ts=key.thread_ts,
             ts=ts or f"fake-{time.time():.6f}",
         )
-        return self._append_inbox(key, rec)
+        written = self._append_inbox(key, rec)
+        assert written is not None
+        return written
 
     def ingest_slack_event(
         self,
@@ -134,17 +148,33 @@ class DaemonService:
                 ts=demuxed.ts,
                 raw=demuxed.raw,
             )
-            written.append(self._append_inbox(key, rec))
+            appended = self._append_inbox(key, rec)
+            if appended is None:
+                log.info(
+                    "inbox skip duplicate ts=%s stream=%s text=%r",
+                    demuxed.ts,
+                    key.format(),
+                    demuxed.text[:80],
+                )
+                continue
+            written.append(appended)
             log.info(
                 "inbox append stream=%s offset=%s user=%s text=%r",
                 key.format(),
-                written[-1].offset,
+                appended.offset,
                 demuxed.user,
                 demuxed.text[:80],
             )
         return written
 
-    def _append_inbox(self, key: StreamKey, rec: MessageRecord) -> MessageRecord:
+    def _append_inbox(self, key: StreamKey, rec: MessageRecord) -> MessageRecord | None:
+        """Append inbox row, or return None if this Slack ``ts`` is already present.
+
+        Guards against Socket Mode retries and demux↔fetch races that would
+        otherwise append the same message twice.
+        """
+        if rec.ts and self.store.inbox_has_ts(key, rec.ts):
+            return None
         written = self.store.append(key, rec, log="inbox")
         with self._cond:
             self._cond.notify_all()
@@ -175,10 +205,14 @@ class DaemonService:
         key: StreamKey,
         *,
         retry_failed: bool = True,
-        repair_first: bool = True,
+        repair_first: bool = False,
         limit: int = 200,
     ) -> dict[str, Any]:
-        """Send pending/failed outbox rows to Slack (after optional history repair)."""
+        """Send pending/failed outbox rows to Slack.
+
+        Default ``repair_first=False`` for the websocket backend (send only).
+        History repair remains available for admin/legacy callers.
+        """
         from slack_fd.flush import flush_stream
 
         client = self.slack.client if self.slack else None
@@ -192,6 +226,46 @@ class DaemonService:
             limit=limit,
         )
         return result.to_dict()
+
+    def reconcile_after_connect(self, *, limit: int = 200) -> dict[str, Any]:
+        """Heal local streams from Slack history, then drain pending outbox.
+
+        Called when Socket Mode comes up. Idempotent (inbox dedupes by ``ts``).
+        """
+        keys = self.store.list_streams()
+        summary: dict[str, Any] = {
+            "streams": len(keys),
+            "fetched": 0,
+            "inbound_added": 0,
+            "flushed_sent": 0,
+            "flushed_failed": 0,
+            "errors": [],
+        }
+        for key in keys:
+            try:
+                fr = self.fetch_stream(key, limit=limit)
+                summary["fetched"] += int(fr.get("fetched") or 0)
+                summary["inbound_added"] += int(fr.get("inbound_added") or 0)
+            except Exception as e:
+                log.exception("heal fetch failed for %s", key)
+                summary["errors"].append(f"fetch {key}: {e}")
+            try:
+                xr = self.flush_stream(
+                    key, retry_failed=True, repair_first=False, limit=limit
+                )
+                summary["flushed_sent"] += int(xr.get("sent") or 0)
+                summary["flushed_failed"] += int(xr.get("failed") or 0)
+            except Exception as e:
+                log.exception("heal flush failed for %s", key)
+                summary["errors"].append(f"flush {key}: {e}")
+        log.info(
+            "reconcile_after_connect streams=%s inbound_added=%s sent=%s errors=%s",
+            summary["streams"],
+            summary["inbound_added"],
+            summary["flushed_sent"],
+            len(summary["errors"]),
+        )
+        return summary
 
     def status(self) -> dict[str, Any]:
         slack_on = bool(self.slack and self.slack.connected)

@@ -123,6 +123,15 @@ class LogStore:
     def outbox_len(self, key: StreamKey) -> int:
         return self._line_count(self._log_path(key, "outbox"))
 
+    def inbox_has_ts(self, key: StreamKey, ts: str) -> bool:
+        """True if an inbox row already carries this Slack ``ts``."""
+        if not ts:
+            return False
+        for rec in self.iter_from(key, 0, log="inbox"):
+            if rec.ts == ts:
+                return True
+        return False
+
     def record_at_inbox_cursor(
         self,
         key: StreamKey,

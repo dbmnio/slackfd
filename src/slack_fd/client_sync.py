@@ -25,12 +25,12 @@ TransportName = Literal["fake", "daemon", "embed", "auto"]
 class SlackStream:
     """File-descriptor-like sync handle for one conversation stream.
 
-    Simple API (defaults):
-      - ``read`` calls ``fetch`` when the local inbox cursor is at the tip
-      - ``write`` appends to the outbox then ``flush`` until the gap is closed
+    Simple API (websocket daemon defaults):
+      - ``read`` consumes the local inbox (daemon demux fills it; no client fetch)
+      - ``write`` enqueues; the daemon sends when Slack is up (durable outbox)
 
-    Advanced: pass ``autofetch=False`` / ``autoflush=False`` and call
-    ``fetch`` / ``flush`` yourself.
+    ``fetch`` / ``flush`` remain as optional admin/legacy RPCs (and for a future
+    pull backend). They are not part of the happy path for Socket Mode.
     """
 
     def __init__(
@@ -41,7 +41,7 @@ class SlackStream:
         transport: TransportName | Transport = "auto",
         data_dir: Path | None = None,
         raise_on_timeout: bool = False,
-        autofetch: bool = True,
+        autofetch: bool = False,
         autoflush: bool = True,
     ) -> None:
         self.key = StreamKey.parse(key) if isinstance(key, str) else key
@@ -108,7 +108,7 @@ class SlackStream:
             self._closed = True
 
     def fetch(self, *, limit: int = 200) -> dict[str, Any]:
-        """Slack → local: fill the inbox gap; heal outbox already on Slack."""
+        """Admin/legacy: force history heal (daemon also heals on Socket Mode connect)."""
         fetch = getattr(self._transport, "fetch", None)
         if fetch is None:
             return {"key": self.key.format(), "notes": ["transport has no fetch"]}
@@ -118,10 +118,10 @@ class SlackStream:
         self,
         *,
         retry_failed: bool = True,
-        repair_first: bool = True,
+        repair_first: bool = False,
         limit: int = 200,
     ) -> dict[str, Any]:
-        """Local → Slack: drain pending/failed outbox (closes the outbox gap)."""
+        """Admin/legacy: ask transport to drain outbox (daemon usually sends on write)."""
         flush = getattr(self._transport, "flush", None)
         if flush is None:
             return {"key": self.key.format(), "notes": ["transport has no flush"]}
