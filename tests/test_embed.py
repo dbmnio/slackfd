@@ -7,7 +7,7 @@ from slack_fd.transport.embed import EmbedTransport
 def test_embed_inject_read_without_slack_tokens(tmp_path, monkeypatch):
     monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
     monkeypatch.delenv("SLACK_APP_TOKEN", raising=False)
-    key = StreamKey.app("U1")
+    key = StreamKey.channel("D1")
     transport = EmbedTransport(tmp_path)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")

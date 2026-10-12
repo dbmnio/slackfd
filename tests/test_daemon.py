@@ -47,7 +47,7 @@ def test_daemon_rpc_write_inject_read(daemon_server, tmp_path):
 
 
 def test_daemon_blocking_read(daemon_server, tmp_path):
-    key = StreamKey.dm("U9")
+    key = StreamKey.channel("D9")
     result = []
 
     def reader():
@@ -76,7 +76,7 @@ def test_lifecycle_start_stop(tmp_path):
     assert st["running"] is True
     assert st["daemon"]["phase"] == 1
 
-    key = "app:U1"
+    key = "D1"
     t = DaemonTransport(tmp_path)
     t.inject_inbound(StreamKey.parse(key), "via-subprocess-daemon")
     with SlackStream(key, transport=t) as s:

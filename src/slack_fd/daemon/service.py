@@ -68,14 +68,12 @@ class DaemonService:
         user_id: str | None = None,
     ) -> MessageRecord:
         """Append a pending outbox row. Remote send is ``flush_stream`` / autoflush."""
-        # Prefer explicit user_id for dm/app if provided on write.
-        send_user = user_id or key.user_id
         rec = MessageRecord(
             offset=-1,
             direction="out",
             stream=key.format(),
             text=text,
-            user=send_user,
+            user=user_id,
             channel=key.channel_id,
             thread_ts=key.thread_ts,
             status="pending",

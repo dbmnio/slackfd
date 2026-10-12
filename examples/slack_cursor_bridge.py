@@ -8,7 +8,7 @@ Prereqs:
   - Python >= 3.11 (shebang uses 3.12)
 
 Example:
-  export SFD_STREAM='app:U01234567'
+  export SFD_STREAM='D01234567'   # Slack IM channel id
   # from repo root, with deps available:
   .venv/bin/python examples/slack_cursor_bridge.py --workspace "$PWD"
   # or: python3.12 examples/slack_cursor_bridge.py --workspace "$PWD"
@@ -132,7 +132,7 @@ def main() -> int:
     p.add_argument(
         "--stream",
         default=os.environ.get("SFD_STREAM"),
-        help="Stream key, e.g. app:U… (or env SFD_STREAM)",
+        help="Stream key, e.g. D… or C…:ts (or env SFD_STREAM)",
     )
     p.add_argument(
         "--workspace",
@@ -176,7 +176,7 @@ def main() -> int:
     args = p.parse_args()
 
     if not args.stream:
-        _log("bridge: pass --stream app:U… or set SFD_STREAM")
+        _log("bridge: pass --stream D…/C…[:ts] or set SFD_STREAM")
         return 2
 
     agent = _resolve_agent(args.agent)

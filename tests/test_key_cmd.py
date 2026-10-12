@@ -8,42 +8,42 @@ def test_reply_stream_key_thread_unchanged():
     rec = MessageRecord(
         offset=0,
         direction="in",
-        stream="thread:C1:1.0",
+        stream="C1:1.0",
         text="hi",
         channel="C1",
         ts="1.1",
         thread_ts="1.0",
     )
-    assert rec.reply_stream_key() == "thread:C1:1.0"
+    assert rec.reply_stream_key() == "C1:1.0"
 
 
-def test_reply_stream_key_app_stays_on_app():
+def test_reply_stream_key_im_message_starts_thread():
     rec = MessageRecord(
         offset=0,
         direction="in",
-        stream="app:U1",
+        stream="D1",
         text="hi",
         channel="D1",
         ts="2.0",
         user="U1",
     )
-    assert rec.reply_stream_key() == "app:U1"
+    assert rec.reply_stream_key() == "D1:2.0"
 
 
 def test_reply_stream_key_builds_thread_from_channel_ts():
     rec = MessageRecord(
         offset=0,
         direction="in",
-        stream="other:x",
+        stream="C9",
         text="hi",
         channel="C9",
         ts="9.0",
     )
-    assert rec.reply_stream_key() == "thread:C9:9.0"
+    assert rec.reply_stream_key() == "C9:9.0"
 
 
 def test_record_at_inbox_cursor_and_last_sent(tmp_path):
-    key = StreamKey.app("U1")
+    key = StreamKey.channel("D1")
     store = LogStore(tmp_path)
     store.append(
         key,
@@ -90,7 +90,7 @@ def test_record_at_inbox_cursor_and_last_sent(tmp_path):
 
 
 def test_cli_key_inbox_and_outbox(tmp_path, capsys):
-    key = "app:U9"
+    key = "D9"
     store = LogStore(tmp_path)
     sk = StreamKey.parse(key)
     store.append(
@@ -125,17 +125,17 @@ def test_cli_key_inbox_and_outbox(tmp_path, capsys):
         main(["--data-dir", str(tmp_path), "key", key])
     except SystemExit as e:
         assert e.code == 0
-    assert capsys.readouterr().out.strip() == "app:U9"
+    assert capsys.readouterr().out.strip() == "D9:1.0"
 
     try:
         main(["--data-dir", str(tmp_path), "key", "-o", key])
     except SystemExit as e:
         assert e.code == 0
-    assert capsys.readouterr().out.strip() == "app:U9"
+    assert capsys.readouterr().out.strip() == "D9:2.0"
 
 
 def test_cli_key_outbox_pending_fails(tmp_path, capsys):
-    key = "thread:C1:1.0"
+    key = "C1:1.0"
     store = LogStore(tmp_path)
     sk = StreamKey.parse(key)
     store.append(

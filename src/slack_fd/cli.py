@@ -387,7 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     w = sub.add_parser("write", help="Append to outbox; flush to Slack (unless --no-flush)")
-    w.add_argument("key", help="Stream key (thread:… / dm:… / app:…)")
+    w.add_argument("key", help="Stream key (C…/D…/G… or C…:thread_ts)")
     w.add_argument("message", nargs="?", help="Message text (default: stdin)")
     w.add_argument("--user", help="User id when required for app/dm writes")
     w.add_argument("--allow-empty", action="store_true")
@@ -447,7 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
         "key",
         help="Print reply/follow stream key from last inbox read or last sent outbox",
     )
-    ky.add_argument("key", help="Stream key (thread:… / dm:… / app:…)")
+    ky.add_argument("key", help="Stream key (C…/D…/G… or C…:thread_ts)")
     side = ky.add_mutually_exclusive_group()
     side.add_argument(
         "-i",
@@ -561,8 +561,8 @@ _OPTS_WITH_VALUE = frozenset({"--data-dir", "--consumer"})
 def apply_key_sugar(argv: list[str], *, stdin_is_tty: bool | None = None) -> list[str]:
     """Rewrite ``sfd <key>`` into read/write based on whether stdin is a pipe.
 
-    - ``sfd app:U1`` → ``sfd read app:U1`` (tty stdin)
-    - ``echo hi | sfd app:U1`` → ``sfd write app:U1`` (piped stdin)
+    - ``sfd D012`` → ``sfd read D012`` (tty stdin)
+    - ``echo hi | sfd D012`` → ``sfd write D012`` (piped stdin)
     Explicit subcommands are left unchanged.
     """
     if stdin_is_tty is None:

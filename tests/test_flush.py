@@ -27,7 +27,7 @@ class FakeFlushClient:
 
 
 def test_flush_repairs_then_sends_remaining(tmp_path):
-    key = StreamKey.app("U_USER")
+    key = StreamKey.channel("DUSER")
     store = LogStore(tmp_path)
     store.append(
         key,

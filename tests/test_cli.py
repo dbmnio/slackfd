@@ -13,7 +13,7 @@ def _force_fake_transport(monkeypatch):
 
 
 def test_cli_write_inject_read_log(tmp_path: Path, capsys):
-    key = "thread:C9:1.0"
+    key = "C9:1.0"
     data = str(tmp_path)
 
     try:
@@ -62,12 +62,12 @@ def test_cli_daemon_lifecycle(tmp_path: Path, monkeypatch, capsys):
     capsys.readouterr()
 
     try:
-        main(["--data-dir", data, "inject", "dm:U1", "hi"])
+        main(["--data-dir", data, "inject", "D1", "hi"])
     except SystemExit as e:
         assert e.code == 0
 
     try:
-        main(["--data-dir", data, "read", "dm:U1", "--timeout", "1"])
+        main(["--data-dir", data, "read", "D1", "--timeout", "1"])
     except SystemExit as e:
         assert e.code == 0
     assert capsys.readouterr().out.strip() == "hi"
@@ -79,25 +79,25 @@ def test_cli_daemon_lifecycle(tmp_path: Path, monkeypatch, capsys):
 
 
 def test_apply_key_sugar_read_and_write():
-    assert apply_key_sugar(["app:U1"], stdin_is_tty=True) == ["read", "app:U1"]
-    assert apply_key_sugar(["app:U1", "--timeout", "5"], stdin_is_tty=True) == [
+    assert apply_key_sugar(["D1"], stdin_is_tty=True) == ["read", "D1"]
+    assert apply_key_sugar(["D1", "--timeout", "5"], stdin_is_tty=True) == [
         "read",
-        "app:U1",
+        "D1",
         "--timeout",
         "5",
     ]
-    assert apply_key_sugar(["app:U1"], stdin_is_tty=False) == ["write", "app:U1"]
-    assert apply_key_sugar(["--data-dir", "/tmp", "app:U1"], stdin_is_tty=True) == [
+    assert apply_key_sugar(["D1"], stdin_is_tty=False) == ["write", "D1"]
+    assert apply_key_sugar(["--data-dir", "/tmp", "D1"], stdin_is_tty=True) == [
         "--data-dir",
         "/tmp",
         "read",
-        "app:U1",
+        "D1",
     ]
-    assert apply_key_sugar(["read", "app:U1"], stdin_is_tty=False) == ["read", "app:U1"]
+    assert apply_key_sugar(["read", "D1"], stdin_is_tty=False) == ["read", "D1"]
 
 
 def test_cli_key_sugar_pipe_write_and_tty_read(tmp_path: Path, monkeypatch, capsys):
-    key = "dm:U99"
+    key = "D99"
     data = str(tmp_path)
 
     monkeypatch.setattr("sys.stdin", io.StringIO("piped-hi\n"))

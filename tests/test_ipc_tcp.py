@@ -35,7 +35,7 @@ def tcp_daemon(tmp_path, monkeypatch):
 def test_tcp_requires_token_and_roundtrips(tcp_daemon, tmp_path, monkeypatch):
     monkeypatch.setenv("SFD_IPC", "tcp")
     assert read_daemon_token(tmp_path)
-    key = StreamKey.app("U1")
+    key = StreamKey.channel("D1")
     t = DaemonTransport(tmp_path)
     t.open(key)
     t.inject_inbound(key, "via-tcp")

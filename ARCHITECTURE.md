@@ -233,43 +233,38 @@ Cursor seek / `read --from` applies to the **inbox** consumer cursor, not a unif
 
 ---
 
-## Stream keys (day 1)
+## Stream keys
 
-Streams are addressed by a small sum type. Wire/CLI form is a single string.
+Streams use Slack’s own ids. Wire/CLI form is a single string:
 
-| Kind | Key form | Meaning |
-|------|----------|---------|
-| Thread | `thread:<channel_id>:<thread_ts>` | Channel or group DM thread (parent `thread_ts`) |
-| User DM | `dm:<user_id>` | IM with a user (resolved to channel internally) |
-| App / bot DM | `app:<user_id>` | User ↔ bot DM |
+| Key form | Meaning |
+|----------|---------|
+| `<channel_id>` | Channel / IM / MPIM top-level tape (`C…` / `D…` / `G…`) |
+| `<channel_id>:<thread_ts>` | Thread under that conversation (parent message `ts`) |
 
 Examples:
 
 ```text
-thread:C01234567:1710000000.000100
-dm:U01234567
-app:U01234567
+C01234567
+D01234567
+C01234567:1710000000.000100
 ```
 
 ### Demux rules (inbound)
 
 | Slack event | Stream key |
 |-------------|------------|
-| `message` in channel/MPIM with `thread_ts` (or replies) | `thread:<channel>:<thread_ts>` |
-| `message` in channel with no thread (top-level) | Optionally `thread:<channel>:<ts>` treating the message as its own thread root — **v1: yes**, so top-level channel messages are addressable |
-| `message` in IM (user→bot) | `app:<user_id>` only (not also `dm:` — avoids duplicate inbox appends) |
-
-Exact bot-DM routing should use Slack’s IM channel id + bot user id from auth.test, stored in daemon meta at startup.
+| Top-level message (no distinct `thread_ts`) | `<channel>` |
+| Reply (`thread_ts` set and ≠ `ts`) | `<channel>:<thread_ts>` |
 
 ### Mux rules (outbound)
 
 | Stream key | Send behavior |
 |------------|---------------|
-| `thread:…` | `chat.postMessage` to channel with `thread_ts` |
-| `dm:U…` | Open/lookup IM for user, then `chat.postMessage` |
-| `app:U…` | `chat.postMessage` to the app’s DM channel for that user |
+| `<channel>` | `chat.postMessage(channel=…)` |
+| `<channel>:<thread_ts>` | `chat.postMessage(channel=…, thread_ts=…)` |
 
-**Implementation note:** `dm:U` and `app:U` send to the **same Slack IM**. Inbound events append to **`app:U` only**. Use `dm:U` when you want a separate outbound-oriented key/cursor; it is not a second copy of the inbox. True shared physical log + aliases can come later.
+Discover channel ids via Slack UI / API (`conversations.list`, `conversations.open`); `sfd` does not invent user-shaped aliases.
 
 ---
 
@@ -282,7 +277,7 @@ JSONL lines are JSON objects (one message per line). Offsets are 0-based line nu
   "offset": 0,
   "ts": "1710000000.000200",
   "direction": "in",
-  "stream": "thread:C012:1710000000.000100",
+  "stream": "C012:1710000000.000100",
   "channel": "C01234567",
   "user": "U01234567",
   "thread_ts": "1710000000.000100",
@@ -303,8 +298,8 @@ JSONL lines are JSON objects (one message per line). Offsets are 0-based line nu
 ```python
 from slack_fd import SlackStream, StreamKey
 
-key = StreamKey.parse("thread:C012:1710000000.000100")
-# or StreamKey.thread(channel, thread_ts), .dm(user), .app(user)
+key = StreamKey.parse("C012:1710000000.000100")
+# or StreamKey.channel("C012"), StreamKey.thread("C012", "1710000000.000100")
 
 with SlackStream(key) as s:
     msg = s.read()              # fetch if at tip; return next; advance local inbox cursor
@@ -362,26 +357,27 @@ sfd daemon stop
 sfd daemon status
 
 # Write (stdin → stream) — simple: enqueue + flush
-echo "hello" | sfd write thread:C012:1710000000.000100
-echo "hello" | sfd dm:U01234567          # sugar: write if stdin is a pipe
-echo "hello" | sfd app:U01234567
+echo "hello" | sfd write C012:1710000000.000100
+echo "hello" | sfd D01234567             # sugar: write if stdin is a pipe
 
 # Read next (stdout) — simple: fetch if at tip, then consume
-sfd read thread:C012:1710000000.000100
-sfd thread:C012:1710000000.000100        # sugar: read if tty
+sfd read C012:1710000000.000100
+sfd D01234567                            # sugar: read if tty
 
 # Advanced: manage gaps yourself
-sfd fetch thread:…                       # Slack → local
-sfd flush thread:…                       # local → Slack
-sfd sync thread:…                        # deprecated alias for fetch
+sfd fetch D012…                          # Slack → local
+sfd flush D012…                          # local → Slack
+sfd sync D012…                           # deprecated alias for fetch
+sfd key -i D012…                         # reply/follow key from last read
 
 # History / follow / views
-sfd read --from 0 thread:…               # seek inbox cursor (inbound only)
-sfd follow thread:…
-sfd log thread:…                         # dump inbox/outbox with offsets
-sfd log --chat thread:…                  # merged view by Slack ts; does not move read cursor
-sfd trim thread:… --keep 1000
+sfd read --from 0 C012…                  # seek inbox cursor (inbound only)
+sfd follow C012…
+sfd log C012…                            # dump inbox/outbox with offsets
+sfd log --chat C012…                     # merged view by Slack ts; does not move read cursor
+sfd trim C012… --keep 1000
 ```
+
 
 **UX note:** Convenient `echo hi | sfd <key>` and `sfd <key>` for read are desirable. Explicit `read`/`write` preferred in scripts; sugar allowed for interactive use.
 
@@ -522,10 +518,10 @@ Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history be
 
 ## Open questions (deferred, not blocking)
 
-1. Should top-level channel messages auto-create `thread:<channel>:<ts>` streams? (**lean yes**)
-2. Message subtype filtering (bot_message, message_changed, deletes)? (**v1: store text messages; skip noisy subtypes or store with flags**)
-3. Distribution: pip-only vs eventual Go rewrite for single binary.
-4. Exact names for advanced opt-outs (`autosync` is a misnomer if the op is `fetch` — prefer `autofetch` / `autoflush`).
+1. Message subtype filtering (bot_message, message_changed, deletes)? (**v1: store text messages; skip noisy subtypes or store with flags**)
+2. Distribution: pip-only vs eventual Go rewrite for single binary.
+3. Name → channel_id resolve helpers (`sfd ls` / `resolve`).
+4. Listen/accept for thread discovery under a channel supervisor.
 
 ---
 
@@ -540,7 +536,7 @@ Non-goals for fetch: continuous bidirectional mirror, rewriting inbox history be
 | Storage | Per-stream JSONL + cursors |
 | Truth model | Slack authoritative in the gaps; local prefix assumed stable; heal on reconnect |
 | Cursor model | Inbox: remote leads → `fetch` then `read`; Outbox: local leads → `write` then `flush` |
-| Keys (day 1) | `thread:…`, `dm:…`, `app:<user_id>` |
+| Keys | `<channel_id>` or `<channel_id>:<thread_ts>` |
 | Library | Thin stream API (sync + async); simple auto gap-close |
 | CLI | Sync only; explicit read/write + pipe sugar; `fetch`/`flush` advanced |
 | Not doing | Full Slack SDK layer; primary explicit-ack API; poll backend (yet) |

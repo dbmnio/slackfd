@@ -79,7 +79,7 @@ Socket Mode still needs **Event Subscriptions** enabled (no Request URL when Soc
 
 | Event | Why |
 |-------|-----|
-| `message.im` | DMs with the bot (`dm:` / `app:` streams) |
+| `message.im` | DMs with the bot (stream key = IM channel `D…`) |
 | `message.channels` | Messages in public channels the bot is in |
 | `message.groups` | Messages in private channels the bot is in |
 | `message.mpim` | Multi-person DMs |
@@ -148,10 +148,10 @@ app_token = "xapp-..."
 |-------|-----|
 | Bot token works | Slack API tester or any `auth.test` call with `xoxb-` |
 | App token works | Daemon connects in Socket Mode without auth errors (Phase 2+) |
-| Events flow | DM the bot; daemon should append to an `app:<user_id>` / `dm:<user_id>` inbox |
-| Sends work | `sfd write dm:U… "hi"` (once Slack mux is wired) |
+| Events flow | DM the bot; daemon should append to the IM channel inbox (`D…`) |
+| Sends work | `sfd write D… "hi"` |
 
-With tokens set, `sfd daemon start` opens Socket Mode. Then DM the bot and `sfd read 'app:<your_user_id>'`. Without tokens, use `sfd inject` for local-only testing.
+With tokens set, `sfd daemon start` opens Socket Mode. Then DM the bot and `sfd read 'D…'` (IM channel id from the event / Slack UI). Without tokens, use `sfd inject` for local-only testing.
 
 ---
 

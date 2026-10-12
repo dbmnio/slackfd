@@ -24,7 +24,7 @@ class FakeFetchClient:
 
 
 def test_fetch_adds_inbound_and_repairs_outbox(tmp_path):
-    key = StreamKey.app("U_USER")
+    key = StreamKey.channel("DUSER")
     store = LogStore(tmp_path)
     store.append(
         key,
@@ -79,7 +79,7 @@ def test_fetch_adds_inbound_and_repairs_outbox(tmp_path):
 
 
 def test_fetch_skips_existing_inbox_ts(tmp_path):
-    key = StreamKey.dm("U_USER")
+    key = StreamKey.channel("DUSER")
     store = LogStore(tmp_path)
     store.append(
         key,

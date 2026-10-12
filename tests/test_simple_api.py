@@ -7,7 +7,7 @@ from slack_fd.transport.fake import FakeTransport
 
 
 def test_write_autoflush_marks_sent(tmp_path):
-    key = StreamKey.app("U1")
+    key = StreamKey.channel("D1")
     transport = FakeTransport(tmp_path)
     with SlackStream(key, transport=transport, autoflush=True) as s:
         out = s.write("hello")
@@ -16,7 +16,7 @@ def test_write_autoflush_marks_sent(tmp_path):
 
 
 def test_write_no_autoflush_stays_pending(tmp_path):
-    key = StreamKey.app("U1")
+    key = StreamKey.channel("D1")
     transport = FakeTransport(tmp_path)
     with SlackStream(key, transport=transport, autoflush=False) as s:
         out = s.write("hello")
@@ -25,7 +25,7 @@ def test_write_no_autoflush_stays_pending(tmp_path):
 
 
 def test_explicit_flush_after_advanced_write(tmp_path):
-    key = StreamKey.dm("U2")
+    key = StreamKey.channel("D2")
     transport = FakeTransport(tmp_path)
     with SlackStream(key, transport=transport, autoflush=False) as s:
         s.write("a")
@@ -75,7 +75,7 @@ def test_read_autofetch_when_at_tip(tmp_path):
 
 
 def test_read_no_autofetch_stays_empty(tmp_path):
-    key = StreamKey.app("U9")
+    key = StreamKey.channel("D9")
     transport = FakeTransport(tmp_path)
     calls: list[str] = []
 
@@ -91,7 +91,7 @@ def test_read_no_autofetch_stays_empty(tmp_path):
 
 
 def test_at_inbox_tip_helper(tmp_path):
-    key = StreamKey.dm("U3")
+    key = StreamKey.channel("D3")
     store = LogStore(tmp_path)
     assert store.at_inbox_tip(key, "default")
     store.append(

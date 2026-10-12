@@ -24,7 +24,7 @@ def test_write_and_inject_read(tmp_path):
 
 
 def test_read_at_does_not_move_cursor(tmp_path):
-    key = StreamKey.dm("U2")
+    key = StreamKey.channel("D2")
     transport = FakeTransport(tmp_path)
     transport.inject_inbound(key, "one")
     transport.inject_inbound(key, "two")
@@ -36,7 +36,7 @@ def test_read_at_does_not_move_cursor(tmp_path):
 
 
 def test_blocking_read_woken_by_inject(tmp_path):
-    key = StreamKey.app("U3")
+    key = StreamKey.channel("D3")
     transport = FakeTransport(tmp_path)
     result = []
 
@@ -54,7 +54,7 @@ def test_blocking_read_woken_by_inject(tmp_path):
 
 
 def test_follow(tmp_path):
-    key = StreamKey.dm("U4")
+    key = StreamKey.channel("D4")
     transport = FakeTransport(tmp_path)
     with SlackStream(key, transport=transport) as s:
         transport.inject_inbound(key, "a")

@@ -23,7 +23,7 @@ def test_append_and_read_at(tmp_path):
 
 def test_cursor_ack(tmp_path):
     store = LogStore(tmp_path)
-    key = StreamKey.dm("U1")
+    key = StreamKey.channel("D1")
     store.append(key, MessageRecord(offset=-1, direction="in", stream="", text="a"))
     store.append(key, MessageRecord(offset=-1, direction="in", stream="", text="b"))
 
@@ -37,7 +37,7 @@ def test_cursor_ack(tmp_path):
 
 def test_outbox_status(tmp_path):
     store = LogStore(tmp_path)
-    key = StreamKey.app("U9")
+    key = StreamKey.channel("D9")
     rec = store.append(
         key,
         MessageRecord(
@@ -57,7 +57,7 @@ def test_outbox_status(tmp_path):
 
 def test_iter_chat_merges_by_ts(tmp_path):
     store = LogStore(tmp_path)
-    key = StreamKey.app("U1")
+    key = StreamKey.channel("D1")
     store.append(
         key,
         MessageRecord(offset=-1, direction="in", stream="", text="second", ts="2.0"),
@@ -84,7 +84,7 @@ def test_iter_chat_merges_by_ts(tmp_path):
 
 def test_trim_keeps_newest_and_adjusts_cursor(tmp_path):
     store = LogStore(tmp_path)
-    key = StreamKey.dm("U2")
+    key = StreamKey.channel("D2")
     for i in range(5):
         store.append(
             key,

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slack-fd"
-version = "0.1.0"
+version = "0.2.0"
 description = "File-descriptor-like streams over Slack conversations (Socket Mode daemon + CLI)"
 readme = "README.md"
 requires-python = ">=3.11"

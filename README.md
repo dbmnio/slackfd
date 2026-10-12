@@ -110,20 +110,20 @@ Optional: `SFD_DATA_DIR` (default `~/.local/share/sfd`).
 sfd daemon start
 sfd daemon status          # slack: true when tokens are set
 
-# DM the bot in Slack, then:
-sfd 'app:U_YOUR_USER_ID' --timeout 10          # read (auto-fetch at tip)
-echo 'hello from sfd' | sfd 'app:U_YOUR_USER_ID'  # write (auto-flush)
-sfd log --chat 'app:U_YOUR_USER_ID'
+# DM the bot in Slack, then use the IM channel id (D…):
+sfd 'D_YOUR_IM_CHANNEL' --timeout 10          # read (auto-fetch at tip)
+echo 'hello from sfd' | sfd 'D_YOUR_IM_CHANNEL'  # write (auto-flush)
+sfd log --chat 'D_YOUR_IM_CHANNEL'
 
 # Reply/follow key from last inbox read (-i, default) or last sent outbox (-o)
-sfd key 'app:U_YOUR_USER_ID'           # e.g. app:U… or thread:C…:ts
-sfd key -o 'app:U_YOUR_USER_ID'        # requires a flushed send with Slack ts
+sfd key 'D_YOUR_IM_CHANNEL'           # e.g. D…:ts to start/follow a thread
+sfd key -o 'D_YOUR_IM_CHANNEL'        # requires a flushed send with Slack ts
 
 # Advanced: manage gaps yourself
-sfd fetch 'app:U_YOUR_USER_ID'
-sfd flush 'app:U_YOUR_USER_ID'
-sfd read --no-fetch 'app:U_YOUR_USER_ID' --timeout 10
-echo 'queued' | sfd write --no-flush 'app:U_YOUR_USER_ID'
+sfd fetch 'D_YOUR_IM_CHANNEL'
+sfd flush 'D_YOUR_IM_CHANNEL'
+sfd read --no-fetch 'D_YOUR_IM_CHANNEL' --timeout 10
+echo 'queued' | sfd write --no-flush 'D_YOUR_IM_CHANNEL'
 
 sfd daemon stop
 ```
@@ -152,13 +152,13 @@ Do **not** bind to `0.0.0.0` — the daemon refuses non-loopback hosts.
 ```python
 from slack_fd import SlackStream, StreamKey
 
-with SlackStream("app:U01234567") as s:
+with SlackStream("D01234567") as s:
     msg = s.read(timeout=30)       # fetch if at tip; advance local inbox cursor
     if msg:
         s.write(f"echo: {msg.text}")  # outbox + flush
 
 # Advanced gap management
-with SlackStream("app:U01234567", autofetch=False, autoflush=False) as s:
+with SlackStream("D01234567", autofetch=False, autoflush=False) as s:
     s.fetch()
     msg = s.read(timeout=0)
     s.write("queued")
@@ -169,10 +169,10 @@ with SlackStream("app:U01234567", autofetch=False, autoflush=False) as s:
 
 | Key | Meaning |
 |-----|---------|
-| `thread:<channel_id>:<thread_ts>` | Channel thread |
-| `dm:<user_id>` | IM with a user |
-| `app:<user_id>` | User ↔ bot DM |
+| `C…` / `D…` / `G…` | Channel, IM, or MPIM (top-level tape) |
+| `C…:1710000000.000100` | Thread under that channel (parent `ts`) |
 
 ## Status
 
-Phases 0–4 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, TCP IPC, simple-API auto gap-close).
+Phases 0–4 complete (daemon, Socket Mode, fetch/flush, embed, trim, CLI sugar, TCP IPC, simple-API auto gap-close).  
+Stream keys are Slack-native `<channel_id>[:thread_ts]`.

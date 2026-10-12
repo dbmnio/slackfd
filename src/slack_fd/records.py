@@ -32,19 +32,21 @@ class MessageRecord:
     def reply_stream_key(self) -> str:
         """Stream key to follow/write for replies related to this message.
 
-        - Already on ``thread:…`` → that stream.
-        - ``app:`` / ``dm:`` → same IM stream (inbound demux does not use thread:D yet).
-        - Else ``thread:{channel}:{thread_ts or ts}`` when channel + ts are known.
+        Returns ``<channel>:<thread_ts or ts>`` when possible (start or stay in a
+        thread). Falls back to ``<channel>`` or the record's ``stream``.
         """
-        stream = self.stream or ""
-        if stream.startswith("thread:"):
-            return stream
-        if stream.startswith("app:") or stream.startswith("dm:"):
-            return stream
+        channel = self.channel
+        if not channel and self.stream:
+            channel = self.stream.split(":", 1)[0]
         root = self.thread_ts or self.ts
-        if self.channel and root:
-            return f"thread:{self.channel}:{root}"
-        return stream
+        # Strip synthetic fake- timestamps from inject/tests for key material.
+        if root and root.startswith("fake-"):
+            root = None
+        if channel and root:
+            return f"{channel}:{root}"
+        if channel:
+            return channel
+        return self.stream or ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MessageRecord:

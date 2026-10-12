@@ -73,7 +73,7 @@ class FakeTransport:
             direction="out",
             stream=key.format(),
             text=text,
-            user=user_id or key.user_id,
+            user=user_id,
             channel=key.channel_id,
             thread_ts=key.thread_ts,
             status="pending",

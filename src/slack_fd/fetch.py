@@ -125,6 +125,11 @@ def fetch_stream(
             thread_ts = msg.get("thread_ts") or msg.get("ts")
             if str(thread_ts) != root_ts and str(msg.get("ts")) != root_ts:
                 continue
+        else:
+            # Channel / IM tape: top-level only (skip replies that belong in C:ts streams).
+            tts = msg.get("thread_ts")
+            if tts and str(tts) != str(msg.get("ts")):
+                continue
         rec = MessageRecord(
             offset=-1,
             direction="in",
@@ -150,18 +155,10 @@ def fetch_stream(
 
 
 def resolve_channel(client: FetchWebApi, key: StreamKey) -> str:
-    if key.kind == "thread":
-        if not key.channel_id:
-            raise ValueError("thread key missing channel_id")
-        return key.channel_id
-    if key.kind in {"dm", "app"}:
-        if not key.user_id:
-            raise ValueError(f"{key.kind} key missing user_id")
-        opened = response_data(client.conversations_open(users=[key.user_id]))
-        if not opened.get("ok"):
-            raise RuntimeError(f"conversations.open failed: {opened.get('error')}")
-        return str(opened["channel"]["id"])
-    raise ValueError(f"unsupported key kind: {key.kind}")
+    del client  # channel id is native on the key; no open/lookup
+    if not key.channel_id:
+        raise ValueError("stream key missing channel_id")
+    return key.channel_id
 
 
 def fetch_messages(

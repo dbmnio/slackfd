@@ -60,24 +60,17 @@ def demux_message_event(
 
     user = event.get("user")
     thread_ts = event.get("thread_ts")
-    channel_type = event.get("channel_type")  # im / channel / group / mpim
 
-    keys: list[StreamKey] = []
-
-    if channel_type == "im" or (isinstance(channel, str) and channel.startswith("D")):
-        if not user:
-            return None
-        # One stream per IM. Prefer app:<user> (user → bot). Writing via dm:<user>
-        # still targets the same Slack IM; we do not dual-append inbound to both
-        # (that looked like duplicate cursors / messages in logs).
-        keys.append(StreamKey.app(user))
+    # One stream per Slack conversation slice:
+    # - channel / IM top-level → <channel_id>
+    # - thread reply → <channel_id>:<thread_ts>
+    if thread_ts and str(thread_ts) != str(ts):
+        key = StreamKey.thread(str(channel), str(thread_ts))
     else:
-        # Channel / group / mpim: thread stream (top-level message is its own root)
-        root = thread_ts or ts
-        keys.append(StreamKey.thread(channel, root))
+        key = StreamKey.channel(str(channel))
 
     return DemuxedMessage(
-        keys=tuple(keys),
+        keys=(key,),
         text=text,
         ts=str(ts),
         channel=str(channel),

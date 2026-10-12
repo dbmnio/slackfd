@@ -22,20 +22,14 @@ class FakeSlackResponse:
 class FakeClient:
     def __init__(self) -> None:
         self.posts: list[dict] = []
-        self.opens: list[dict] = []
 
     def chat_postMessage(self, **kwargs):
         self.posts.append(kwargs)
         return FakeSlackResponse({"ok": True, "ts": "9.9"})
 
-    def conversations_open(self, **kwargs):
-        self.opens.append(kwargs)
-        return FakeSlackResponse({"ok": True, "channel": {"id": "D999"}})
-
 
 def test_response_data_handles_slack_response():
     resp = FakeSlackResponse({"ok": True, "ts": "1.2", "error": None})
-    # dict(SlackResponse)-style conversion is unreliable; use response_data.
     assert response_data(resp) == {"ok": True, "ts": "1.2", "error": None}
     assert response_data({"ok": False, "error": "x"})["error"] == "x"
 
@@ -49,16 +43,16 @@ def test_send_thread():
     assert client.posts[0]["text"] == "hi"
 
 
-def test_send_dm_opens_conversation():
+def test_send_channel():
     client = FakeClient()
-    key = StreamKey.app("U1")
+    key = StreamKey.channel("D999")
     send_message(client, key, "yo")
-    assert client.opens[0]["users"] == ["U1"]
     assert client.posts[0]["channel"] == "D999"
+    assert "thread_ts" not in client.posts[0]
 
 
 def test_apply_send_result():
-    rec = MessageRecord(offset=0, direction="out", stream="dm:U1", text="x")
+    rec = MessageRecord(offset=0, direction="out", stream="D1", text="x")
     status, ts, err = apply_send_result(rec, {"ok": True, "ts": "1.2"})
     assert status == "sent" and ts == "1.2" and err is None
     status, ts, err = apply_send_result(rec, {"ok": False, "error": "channel_not_found"})

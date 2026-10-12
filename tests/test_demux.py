@@ -1,7 +1,7 @@
 from slack_fd.daemon.demux import demux_message_event
 
 
-def test_demux_im_to_app_only():
+def test_demux_im_to_channel_id():
     event = {
         "type": "message",
         "channel": "D012",
@@ -12,7 +12,7 @@ def test_demux_im_to_app_only():
     }
     d = demux_message_event(event, bot_user_id="U_BOT")
     assert d is not None
-    assert [k.format() for k in d.keys] == ["app:U999"]
+    assert [k.format() for k in d.keys] == ["D012"]
     assert d.text == "hello bot"
 
 
@@ -28,7 +28,7 @@ def test_demux_ignores_own_bot_user():
     assert demux_message_event(event, bot_user_id="U_BOT") is None
 
 
-def test_demux_channel_top_level_as_thread_root():
+def test_demux_channel_top_level():
     event = {
         "type": "message",
         "channel": "C012",
@@ -39,7 +39,7 @@ def test_demux_channel_top_level_as_thread_root():
     }
     d = demux_message_event(event, bot_user_id="U_BOT")
     assert d is not None
-    assert d.keys[0].format() == "thread:C012:1710000000.000100"
+    assert d.keys[0].format() == "C012"
 
 
 def test_demux_channel_reply():
@@ -54,7 +54,7 @@ def test_demux_channel_reply():
     }
     d = demux_message_event(event, bot_user_id="U_BOT")
     assert d is not None
-    assert d.keys[0].format() == "thread:C012:1710000000.000100"
+    assert d.keys[0].format() == "C012:1710000000.000100"
 
 
 def test_demux_skips_message_changed():

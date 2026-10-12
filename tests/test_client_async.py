@@ -5,7 +5,7 @@ from slack_fd.transport.fake import FakeTransport
 
 
 def test_async_read_write(tmp_path):
-    key = StreamKey.dm("U7")
+    key = StreamKey.channel("D7")
     transport = FakeTransport(tmp_path)
 
     async def run() -> None:

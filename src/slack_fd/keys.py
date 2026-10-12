@@ -1,4 +1,4 @@
-"""Stream key parse/format: thread / dm / app."""
+"""Stream key parse/format: ``<channel_id>`` or ``<channel_id>:<thread_ts>``."""
 
 from __future__ import annotations
 
@@ -8,39 +8,33 @@ from typing import Literal
 
 from slack_fd.errors import InvalidKey
 
-StreamKind = Literal["thread", "dm", "app"]
+StreamKind = Literal["channel", "thread"]
 
-_THREAD_RE = re.compile(r"^thread:([A-Z0-9]+):(\d+\.\d+)$")
-_DM_RE = re.compile(r"^dm:([A-Z0-9]+)$")
-_APP_RE = re.compile(r"^app:([A-Z0-9]+)$")
+# Slack conversation ids typically C… / D… / G… (letter + alphanumerics).
+_CHANNEL_RE = re.compile(r"^([CDG][A-Z0-9]+)$")
+_THREAD_RE = re.compile(r"^([CDG][A-Z0-9]+):(\d+\.\d+)$")
 
 
 @dataclass(frozen=True, slots=True)
 class StreamKey:
-    """Logical conversation address for a stream."""
+    """Slack conversation address: channel id, optional thread parent ts."""
 
-    kind: StreamKind
-    channel_id: str | None = None
+    channel_id: str
     thread_ts: str | None = None
-    user_id: str | None = None
+
+    @property
+    def kind(self) -> StreamKind:
+        return "thread" if self.thread_ts else "channel"
 
     def __str__(self) -> str:
         return self.format()
 
     def format(self) -> str:
-        if self.kind == "thread":
-            if not self.channel_id or not self.thread_ts:
-                raise InvalidKey("thread key requires channel_id and thread_ts")
-            return f"thread:{self.channel_id}:{self.thread_ts}"
-        if self.kind == "dm":
-            if not self.user_id:
-                raise InvalidKey("dm key requires user_id")
-            return f"dm:{self.user_id}"
-        if self.kind == "app":
-            if not self.user_id:
-                raise InvalidKey("app key requires user_id")
-            return f"app:{self.user_id}"
-        raise InvalidKey(f"unknown kind: {self.kind}")
+        if not self.channel_id:
+            raise InvalidKey("channel_id required")
+        if self.thread_ts:
+            return f"{self.channel_id}:{self.thread_ts}"
+        return self.channel_id
 
     def encoded_dirname(self) -> str:
         """Filesystem-safe directory name for this key."""
@@ -56,33 +50,30 @@ class StreamKey:
         if m:
             return cls.thread(m.group(1), m.group(2))
 
-        m = _DM_RE.match(value)
+        m = _CHANNEL_RE.match(value)
         if m:
-            return cls.dm(m.group(1))
-
-        m = _APP_RE.match(value)
-        if m:
-            return cls.app(m.group(1))
+            return cls.channel(m.group(1))
 
         raise InvalidKey(
             f"invalid stream key {value!r}; expected "
-            "thread:<channel>:<ts>, dm:<user>, or app:<user>"
+            "<channel_id> or <channel_id>:<thread_ts> "
+            "(e.g. C012ABC, D012ABC, C012ABC:1710000000.000100)"
         )
 
     @classmethod
+    def channel(cls, channel_id: str) -> StreamKey:
+        if not channel_id or not _CHANNEL_RE.match(channel_id):
+            raise InvalidKey(
+                f"invalid channel_id {channel_id!r}; expected C…/D…/G… id"
+            )
+        return cls(channel_id=channel_id, thread_ts=None)
+
+    @classmethod
     def thread(cls, channel_id: str, thread_ts: str) -> StreamKey:
-        if not channel_id or not thread_ts:
-            raise InvalidKey("thread key requires channel_id and thread_ts")
-        return cls(kind="thread", channel_id=channel_id, thread_ts=thread_ts)
-
-    @classmethod
-    def dm(cls, user_id: str) -> StreamKey:
-        if not user_id:
-            raise InvalidKey("dm key requires user_id")
-        return cls(kind="dm", user_id=user_id)
-
-    @classmethod
-    def app(cls, user_id: str) -> StreamKey:
-        if not user_id:
-            raise InvalidKey("app key requires user_id")
-        return cls(kind="app", user_id=user_id)
+        if not channel_id or not _CHANNEL_RE.match(channel_id):
+            raise InvalidKey(
+                f"invalid channel_id {channel_id!r}; expected C…/D…/G… id"
+            )
+        if not thread_ts or not re.match(r"^\d+\.\d+$", thread_ts):
+            raise InvalidKey(f"invalid thread_ts {thread_ts!r}")
+        return cls(channel_id=channel_id, thread_ts=thread_ts)

@@ -14,8 +14,6 @@ log = logging.getLogger("slack_fd.mux")
 class WebApi(Protocol):
     def chat_postMessage(self, **kwargs: Any) -> Any: ...
 
-    def conversations_open(self, **kwargs: Any) -> Any: ...
-
 
 def response_data(resp: Any) -> dict[str, Any]:
     """Normalize slack_sdk SlackResponse / dict into a plain dict.
@@ -39,26 +37,13 @@ def response_data(resp: Any) -> dict[str, Any]:
 
 def send_message(client: WebApi, key: StreamKey, text: str) -> dict[str, Any]:
     """Post ``text`` to the Slack destination for ``key``. Returns API response data."""
-    if key.kind == "thread":
-        assert key.channel_id and key.thread_ts
-        return response_data(
-            client.chat_postMessage(
-                channel=key.channel_id,
-                text=text,
-                thread_ts=key.thread_ts,
-            )
-        )
-
-    if key.kind in {"dm", "app"}:
-        if not key.user_id:
-            raise ValueError(f"{key.kind} key requires user_id")
-        opened = response_data(client.conversations_open(users=[key.user_id]))
-        if not opened.get("ok"):
-            return opened
-        channel = opened["channel"]["id"]
-        return response_data(client.chat_postMessage(channel=channel, text=text))
-
-    raise ValueError(f"unsupported stream kind: {key.kind}")
+    kwargs: dict[str, Any] = {
+        "channel": key.channel_id,
+        "text": text,
+    }
+    if key.thread_ts:
+        kwargs["thread_ts"] = key.thread_ts
+    return response_data(client.chat_postMessage(**kwargs))
 
 
 def apply_send_result(
